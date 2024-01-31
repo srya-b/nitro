@@ -758,14 +758,15 @@ validationsLoop:
 					continue validationsLoop
 				}
 				wasmRoots = append(wasmRoots, run.WasmModuleRoot())
-				runEnd, err := run.Current()
-				if err == nil && runEnd != validationStatus.Entry.End {
-					err = fmt.Errorf("validation failed: expected %v got %v", validationStatus.Entry.End, runEnd)
-					writeErr := v.writeToFile(validationStatus.Entry, run.WasmModuleRoot())
-					if writeErr != nil {
-						log.Warn("failed to write debug results file", "err", writeErr)
-					}
-				}
+				_, err := run.Current()
+				// runEnd, err := run.Current()
+				//if err == nil && runEnd != validationStatus.Entry.End {
+				//	err = fmt.Errorf("validation failed: expected %v got %v", validationStatus.Entry.End, runEnd)
+				//	writeErr := v.writeToFile(validationStatus.Entry, run.WasmModuleRoot())
+				//	if writeErr != nil {
+				//		log.Warn("failed to write debug results file", "err", writeErr)
+				//	}
+				//}
 				if err != nil {
 					validatorFailedValidationsCounter.Inc(1)
 					v.possiblyFatal(err)

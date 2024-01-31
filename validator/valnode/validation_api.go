@@ -36,6 +36,7 @@ import (
 const Namespace string = "validation"
 const subTrieDepth = 0
 const cacheSize = 50000
+
 var logFile *os.File
 var firstValidationInput bool
 var pathToSubTrieRoot []int
@@ -660,7 +661,8 @@ func findPreimageInFiles() {
 	//preimage := common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
 	//preimage := common.HexToHash("3b44b8c856a5f7ad22d92bb8a05b9a1d3cde48edaebdd4b73d229ad01709f7cc")
 	//preimage := common.HexToHash("999b74ef968b5eaacc643dea0722e18fb8f0b533e4b091e203aa863d464da227")
-	preimage := common.HexToHash("6bb4949ca18080d565d4549a8daabe75586aae53b7601b270c08d96860368c11")
+	preimage := common.HexToHash("5a7e93bad678c498e2b5646b850dbb9225b8e92c3f6ee3aedc4c516c57f7f400")
+	//preimage = common.HexToHash("34d57f7acd6ee38eaad7167ff6c2a275cc0afd195110512dd83e6adc220fdc34")
 	dir := "/home/sbakshi/caching/validator_logs"
 	d, err := os.Open(dir)
 	if err != nil {

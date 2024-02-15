@@ -27,6 +27,7 @@ import (
 )
 
 const Namespace string = "validation"
+const subTrieDepth = 0
 
 var logFile *os.File
 var firstValidationInput bool
@@ -86,7 +87,8 @@ func InitializeCache(valInput *validator.ValidationInput) (bool) {
 	if err != nil { panic(err) }
 
 	// grab a random path to fullNode
-	randomPath := trie.ChooseRandomFullNode(rootNode, valInput.Preimages, 3)
+	randomPath, b := trie.ChooseRandomFullNode(rootNode, valInput.Preimages, subTrieDepth)
+	if !b { panic("failed to find any fullnode") }
 	pathToSubTrieRoot = randomPath
 	log.Println("[Init] Index path of chosen full node:", randomPath)
 
@@ -121,12 +123,13 @@ func InitializeCache(valInput *validator.ValidationInput) (bool) {
 					Pathmap: make(map[string]common.Hash),
 					Mutex: &sync.RWMutex{},
 	}
-	ok := cacheSubTrie.InitPathmap()
+	//ok := cacheSubTrie.InitPathmap()
 
-	if !ok { 
-		log.Println("[Init] Failed to init the path map")
-		f.WriteString("Failed to init the path map\n")
-	} else { f.WriteString("Path map successful\n") }
+	//if !ok { 
+	//	log.Println("[Init] Failed to init the path map")
+	//	f.WriteString("Failed to init the path map\n")
+	//} else { f.WriteString("Path map successful\n") }
+	ok := true
 
 	f.Close()
 
@@ -172,9 +175,9 @@ func processValidationInput(valInput *validator.ValidationInput) bool {
 				// reset the trie root
 				cacheSubTrie.Root = newRoot
 				log.Println(fmt.Sprintf("New Root. Hash=%v, Node=%v", trie.HashNode(newRoot), newRoot))
-				numNodes := cacheSubTrie.NumTrieNodes()
+				numNodes := cacheSubTrie.NumNodesWithStorage()
 				log.Println("Nodes in trie AFTER update:", numNodes)
-				size := cacheSubTrie.SizeInBytes()
+				size := cacheSubTrie.SizeInBytesWithStorage()
 				log.Println("Size of trie AFTER update:", size)
 				return true
 			}
@@ -250,13 +253,14 @@ func processSavedInputs() bool {
 		f.Close()
 	}
 	d.Close()
+
 	return true
 }
 
 // DEBUG function to search for specific preimages in the saved data
 func findPreimageInFiles() {
-	preimage := common.HexToHash("5a7e93bad678c498e2b5646b850dbb9225b8e92c3f6ee3aedc4c516c57f7f400")
-	//preimage = common.HexToHash("34d57f7acd6ee38eaad7167ff6c2a275cc0afd195110512dd83e6adc220fdc34")
+	//preimage := common.HexToHash("56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421")
+	preimage := common.HexToHash("3b44b8c856a5f7ad22d92bb8a05b9a1d3cde48edaebdd4b73d229ad01709f7cc")
 	dir := "/home/sbakshi/caching/validator_logs"
 	d, err := os.Open(dir)
 	if err != nil {
@@ -321,7 +325,7 @@ func processInput(valInput *validator.ValidationInput) (bool) {
 		// print the root and determine the cache trie's # nodes
 		subTrieRootHash := trie.HashNode(cacheSubTrie.Root)
 		log.Println(fmt.Sprintf("[Sanity] cacheroot hash: %v", subTrieRootHash))
-		numNodes := cacheSubTrie.NumTrieNodes()
+		numNodes := cacheSubTrie.NumNodesWithStorage()
 		log.Println("[Sanity] Nodes in cache:", numNodes)
 
 		// DEBUG: writing things to a log file (NOT NEEDED ANYMORE)
@@ -329,7 +333,7 @@ func processInput(valInput *validator.ValidationInput) (bool) {
 		if err != nil { panic(fmt.Sprintf("%v",err)) }
 
 		// size of trie in bytes
-		trieSize := cacheSubTrie.SizeInBytes()
+		trieSize := cacheSubTrie.SizeInBytesWithStorage()
 		log.Println("[Sanity] Trie size in bytes:", trieSize)
 
 		// get root for this request input an do some sanity checks on our processing
@@ -535,7 +539,7 @@ func NewValidationServerAPI(spawner validator.ValidationSpawner) *ValidationServ
 
 	// DEBUG: run this command to process the saved validation inputs
 	// else comment both out and run validator live
-	//processSavedInputs()
+	processSavedInputs()
 	//findPreimageInFiles()
 
 	return &ValidationServerAPI{spawner}

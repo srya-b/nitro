@@ -17,7 +17,7 @@ import (
 	"time"
 	_ "reflect"
 	"encoding/gob"
-	"encoding/hex"
+	_"encoding/hex"
 	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -301,6 +301,7 @@ func InitializeCache(valInput *validator.ValidationInput) (bool) {
 					TrieKeys: make(map[common.Hash][]byte),
 					KeyToHash: make(map[common.Hash]common.Hash),
 					LastUpdate: initCacheUpdate,
+					PrefixesOfInterest: []byte{},
 	}
 	//ok := cacheSubTrie.InitPathmap()
 	cacheSubTrie.TrieCreateKeyMap()
@@ -317,7 +318,7 @@ func InitializeCache(valInput *validator.ValidationInput) (bool) {
 	for k, _ := range(cacheSubTrie.TrieKeys) {
 		keys = append(keys, k)
 	}
-	log.Println("trie keys", keys)
+	//log.Println("trie keys", keys)
 	//log.Println("update keys", cacheSubTrie.LastUpdate.NodesAdded)
 	keysNotInUpdate := l1NotInl2(keys, cacheSubTrie.LastUpdate.NodesAdded)
 	updateNotInKeys := l1NotInl2(cacheSubTrie.LastUpdate.NodesAdded, keys)
@@ -416,7 +417,7 @@ func SortFileNameAscend(files []os.FileInfo) {
 
 var numFilesProcess = 1
 //var numInputsProcess = 3565
-var numInputsProcess = 5000
+var numInputsProcess = 10000000
 //var numInputsProcess = 3467
 // [6 7 3 7 11 -1 8 15 8 2 10 14]
 // INFO [04-11|13:42:56.979] the Node        n="{02000c040408030504000d060403070e020704020a0f03050a010b03000b0605020c0c080901030d0d0c08060e0b0a0705040106080d0907070610: 837a873c } "
@@ -774,28 +775,28 @@ func processInput(valInput *validator.ValidationInput) (bool) {
 					pointer: 0,
 		}
 
-		cache.Update(cacheSubTrie.LastUpdate)
+		//cache.Update(cacheSubTrie.LastUpdate)
 
 		// get node from path
 
 		/////////// DEBUG AND TEST GETTING BY PREFIX ////////////////////
-		sn1key, _ := hex.DecodeString("05050205010403010a07060f020f0e0d000002020800000f02000d020604080d0f0b050b0208000f090a0b070a030c0b0206070f000d0101090210")
-		sn2key , _ := hex.DecodeString("09000d0e0c0d090504080b06020a080d06000304050a0908080308060f0c08040b0a060b0c09050408040000080f060306020f09030106000e0f030e05060310")
-		npath, exists := trie.NodeFromPath(cacheSubTrie.Root, []int{5, 7, 6, 14, 14, -1, 2}, valInput.Preimages[0])
-		fullPrefix := []byte{5, 7, 6, 14, 14}		// up to the short node
-		fullPrefix = append(fullPrefix, sn1key...)	// the value node
-		fullPrefix = append(fullPrefix, byte(1))	// storage trie root
-		fullPrefix = append(fullPrefix, byte(2))	// final short node
-		fullPrefix = append(fullPrefix, sn2key...)	// valueNode
-		nprefix, ok := cacheSubTrie.NodeFromPrefix(fullPrefix)
-		if !exists {
-			log.Println(fmt.Sprintf("npath doesn' exist"))
-		} 
-		if !ok {
-			log.Println(fmt.Sprintf("nprefix doesn't exist. Prefx=%x", []byte{5,7}))
-		}
-		log.Println("Path node", npath)
-		log.Println("Prefix node", nprefix)
+		//sn1key, _ := hex.DecodeString("05050205010403010a07060f020f0e0d000002020800000f02000d020604080d0f0b050b0208000f090a0b070a030c0b0206070f000d0101090210")
+		//sn2key , _ := hex.DecodeString("09000d0e0c0d090504080b06020a080d06000304050a0908080308060f0c08040b0a060b0c09050408040000080f060306020f09030106000e0f030e05060310")
+		//npath, exists := trie.NodeFromPath(cacheSubTrie.Root, []int{5, 7, 6, 14, 14, -1, 2}, valInput.Preimages[0])
+		//fullPrefix := []byte{5, 7, 6, 14, 14}		// up to the short node
+		//fullPrefix = append(fullPrefix, sn1key...)	// the value node
+		//fullPrefix = append(fullPrefix, byte(1))	// storage trie root
+		//fullPrefix = append(fullPrefix, byte(2))	// final short node
+		//fullPrefix = append(fullPrefix, sn2key...)	// valueNode
+		//nprefix, ok := cacheSubTrie.NodeFromPrefix(fullPrefix)
+		//if !exists {
+		//	log.Println(fmt.Sprintf("npath doesn' exist"))
+		//} 
+		//if !ok {
+		//	log.Println(fmt.Sprintf("nprefix doesn't exist. Prefx=%x", []byte{5,7}))
+		//}
+		//log.Println("Path node", npath)
+		//log.Println("Prefix node", nprefix)
 		// reset the LastUpdate
 		cacheSubTrie.LastUpdate = &trie.CacheUpdate{
 									NodesChanged: []common.Hash{},
@@ -826,29 +827,30 @@ func processInput(valInput *validator.ValidationInput) (bool) {
 			if valInput.Id != lastInputNumber + 1 {
 				// save it in the map for later
 				bufferedValidations[valInput.Id] = valInput
+				panic("Collection mode is wrong we shouldn't have out of order inputs rn")
 			} else {
 				// process this one because it's next
 			    ok := processValidationInput(valInput)
 				if !ok {
 					log.Println(fmt.Sprintf("Couldn't propoerly update the cache"))
 				}
-				cache.Update(cacheSubTrie.LastUpdate)
-				log.Println("Cache hastToIdx size:", len(cache.hashToIdx))
-				keysInTrie := []common.Hash{}
-				for k, _ := range cacheSubTrie.TrieKeys  {
-					keysInTrie = append(keysInTrie, k)
-				}
-				for k, _ := range cacheSubTrie.NodesChangedAndLostPrefix {
-					keysInTrie = append(keysInTrie, k)
-				}
-				keysInCache := []common.Hash{}
-				for k, _ := range cache.hashToIdx {
-					keysInCache = append(keysInCache, k)
-				}
-				inTrieNotInCache := l1NotInl2(keysInTrie, keysInCache)
-				log.Println("Hashes in trie not in cache", inTrieNotInCache)
-				inCacheNotInTrie := l1NotInl2(keysInCache, keysInTrie)
-				log.Println("Hashes in cache not in trie", inCacheNotInTrie)
+				//cache.Update(cacheSubTrie.LastUpdate)
+				//log.Println("Cache hastToIdx size:", len(cache.hashToIdx))
+				//keysInTrie := []common.Hash{}
+				//for k, _ := range cacheSubTrie.TrieKeys  {
+				//	keysInTrie = append(keysInTrie, k)
+				//}
+				//for k, _ := range cacheSubTrie.NodesChangedAndLostPrefix {
+				//	keysInTrie = append(keysInTrie, k)
+				//}
+				//keysInCache := []common.Hash{}
+				//for k, _ := range cache.hashToIdx {
+				//	keysInCache = append(keysInCache, k)
+				//}
+				//inTrieNotInCache := l1NotInl2(keysInTrie, keysInCache)
+				//log.Println("Hashes in trie not in cache", inTrieNotInCache)
+				//inCacheNotInTrie := l1NotInl2(keysInCache, keysInTrie)
+				//log.Println("Hashes in cache not in trie", inCacheNotInTrie)
 				cacheSubTrie.LastUpdate = &trie.CacheUpdate{
 											NodesChanged: []common.Hash{},
 											NodesAdded: []common.Hash{},
@@ -871,8 +873,8 @@ func processInput(valInput *validator.ValidationInput) (bool) {
 								log.Println("The hash exists in NodesAdded")
 							}
 						}
-						cache.Update(cacheSubTrie.LastUpdate)
-						log.Println("Cache hastToIdx size:", len(cache.hashToIdx))
+						//cache.Update(cacheSubTrie.LastUpdate)
+						//log.Println("Cache hastToIdx size:", len(cache.hashToIdx))
 						lastInputNumber = inp.Id
 						delete(bufferedValidations, inp.Id)
 						// reset the LastUpdate
@@ -1025,7 +1027,7 @@ func NewValidationServerAPI(spawner validator.ValidationSpawner) *ValidationServ
 
 	// DEBUG: run this command to process the saved validation inputs
 	// else comment both out and run validator live
-	//processSavedInputs()
+	processSavedInputs()
 	//findPreimageInFiles()
 
 	return &ValidationServerAPI{spawner}

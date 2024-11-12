@@ -40,8 +40,9 @@ func testDASStoreRetrieveMultipleInstances(t *testing.T, storageType string) {
 			KeyDir: dbPath,
 		},
 		LocalFileStorage: LocalFileStorageConfig{
-			Enable:  enableFileStorage,
-			DataDir: dbPath,
+			Enable:       enableFileStorage,
+			DataDir:      dbPath,
+			MaxRetention: DefaultLocalFileStorageConfig.MaxRetention,
 		},
 		LocalDBStorage:     dbConfig,
 		ParentChainNodeURL: "none",
@@ -54,9 +55,10 @@ func testDASStoreRetrieveMultipleInstances(t *testing.T, storageType string) {
 	Require(t, err, "no das")
 	var daReader DataAvailabilityServiceReader = storageService
 
+	// #nosec G115
 	timeout := uint64(time.Now().Add(time.Hour * 24).Unix())
 	messageSaved := []byte("hello world")
-	cert, err := daWriter.Store(firstCtx, messageSaved, timeout, []byte{})
+	cert, err := daWriter.Store(firstCtx, messageSaved, timeout)
 	Require(t, err, "Error storing message")
 	if cert.Timeout != timeout {
 		Fail(t, fmt.Sprintf("Expected timeout of %d in cert, was %d", timeout, cert.Timeout))
@@ -129,8 +131,9 @@ func testDASMissingMessage(t *testing.T, storageType string) {
 			KeyDir: dbPath,
 		},
 		LocalFileStorage: LocalFileStorageConfig{
-			Enable:  enableFileStorage,
-			DataDir: dbPath,
+			Enable:       enableFileStorage,
+			DataDir:      dbPath,
+			MaxRetention: DefaultLocalFileStorageConfig.MaxRetention,
 		},
 		LocalDBStorage:     dbConfig,
 		ParentChainNodeURL: "none",
@@ -144,8 +147,9 @@ func testDASMissingMessage(t *testing.T, storageType string) {
 	var daReader DataAvailabilityServiceReader = storageService
 
 	messageSaved := []byte("hello world")
+	// #nosec G115
 	timeout := uint64(time.Now().Add(time.Hour * 24).Unix())
-	cert, err := daWriter.Store(ctx, messageSaved, timeout, []byte{})
+	cert, err := daWriter.Store(ctx, messageSaved, timeout)
 	Require(t, err, "Error storing message")
 	if cert.Timeout != timeout {
 		Fail(t, fmt.Sprintf("Expected timeout of %d in cert, was %d", timeout, cert.Timeout))

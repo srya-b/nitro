@@ -166,9 +166,11 @@ func startClientStore(args []string) error {
 		if err != nil {
 			return err
 		}
-		cert, err = client.Store(ctx, message, uint64(time.Now().Add(config.DASRetentionPeriod).Unix()), []byte{})
+		// #nosec G115
+		cert, err = client.Store(ctx, message, uint64(time.Now().Add(config.DASRetentionPeriod).Unix()))
 	} else if len(config.Message) > 0 {
-		cert, err = client.Store(ctx, []byte(config.Message), uint64(time.Now().Add(config.DASRetentionPeriod).Unix()), []byte{})
+		// #nosec G115
+		cert, err = client.Store(ctx, []byte(config.Message), uint64(time.Now().Add(config.DASRetentionPeriod).Unix()))
 	} else {
 		return errors.New("--message or --random-message-size must be specified")
 	}
@@ -316,6 +318,10 @@ func parseDumpKeyset(args []string) (*DumpKeysetConfig, error) {
 		return nil, err
 	}
 
+	if err = das.FixKeysetCLIParsing("keyset.backends", k); err != nil {
+		return nil, err
+	}
+
 	var config DumpKeysetConfig
 	if err := confighelpers.EndCommonParse(k, &config); err != nil {
 		return nil, err
@@ -334,7 +340,7 @@ func parseDumpKeyset(args []string) (*DumpKeysetConfig, error) {
 	if config.Keyset.AssumedHonest == 0 {
 		return nil, errors.New("--keyset.assumed-honest must be set")
 	}
-	if config.Keyset.Backends == "" {
+	if config.Keyset.Backends == nil {
 		return nil, errors.New("--keyset.backends must be set")
 	}
 
@@ -359,6 +365,7 @@ func dumpKeyset(args []string) error {
 		return err
 	}
 
+	// #nosec G115
 	keysetHash, keysetBytes, err := das.KeysetHashFromServices(services, uint64(config.Keyset.AssumedHonest))
 	if err != nil {
 		return err

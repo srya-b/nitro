@@ -22,6 +22,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
+
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
@@ -35,6 +36,7 @@ import (
 const Namespace string = "validation"
 const subTrieDepth = 0
 const cacheSize = 50000
+
 var logFile *os.File
 var firstValidationInput bool
 var pathToSubTrieRoot []int
@@ -219,7 +221,6 @@ func blockHeaderFromInput(valInput *validator.ValidationInput) (*types.Header) {
 	firstBlockHeader.SanityCheck()
 	return firstBlockHeader
 }
-
 
 func l1NotInl2(l1 []common.Hash, l2 []common.Hash) []common.Hash {
 	l2map := make(map[common.Hash]struct{}, len(l2))
@@ -424,7 +425,6 @@ var numInputsProcess = 10000000
 //var numInputsProcess = 538
 // This function reads SAVED validation inputs and processes them normally
 // As opposed to func validate(..) which is called when an input is received from a client
-
 // This function reads SAVED validation inputs and processes them normally
 // As opposed to func validate(..) which is called when an input is received from a client
 func processSavedInputs() bool {

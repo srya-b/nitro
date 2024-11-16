@@ -302,7 +302,7 @@ func InitializeCache(valInput *validator.ValidationInput) (bool) {
 					TrieKeys: make(map[common.Hash][]byte),
 					KeyToHash: make(map[common.Hash]common.Hash),
 					LastUpdate: initCacheUpdate,
-					PrefixesOfInterest: []byte{},
+					//PrefixesOfInterest: []byte{},
 	}
 	//ok := cacheSubTrie.InitPathmap()
 	cacheSubTrie.TrieCreateKeyMap()

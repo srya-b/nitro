@@ -1,6 +1,7 @@
 [submodule "go-ethereum"]
 	path = go-ethereum
 	url = https://github.com/srya-b/go-ethereum.git
+	branch = caching
 [submodule "arbitrator/wasm-libraries/soft-float/SoftFloat"]
 	path = arbitrator/wasm-libraries/soft-float/SoftFloat
 	url = https://github.com/OffchainLabs/SoftFloat.git

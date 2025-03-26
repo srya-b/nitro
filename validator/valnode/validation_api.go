@@ -987,23 +987,24 @@ var collection bool
 // if the cache subtrie root exists in a validationInput, it tries to update the trie: traverse both tries in parallel, add new subtries as they appear
 //																				       update nodes that have updated (maybe a child hash changed in a fullNode)
 func (a *ValidationServerAPI) Validate(ctx context.Context, entry *server_api.InputJSON, moduleRoot common.Hash) (validator.GoGlobalState, error) {
-	validationLock.Lock()
-	valInput, err := server_api.ValidationInputFromJson(entry)
+	//validationLock.Lock()
+	_, err := server_api.ValidationInputFromJson(entry)
+	//valInput, err := server_api.ValidationInputFromJson(entry)
 	if err != nil {
 		return validator.GoGlobalState{}, err
 	}
 
-	if collection == true {
-		runCollectionMode(valInput)
-	} else {
-		processInput(valInput)
-	}
+	//if collection == true {
+	//	runCollectionMode(valInput)
+	//} else {
+	//	processInput(valInput)
+	//}
 
-	numSuccessfulValidations += 1
-	if (numSuccessfulValidations % 100 == 1) {
-		log.Println(fmt.Sprintf("Validated %v requests.", numSuccessfulValidations))
-	}
-	validationLock.Unlock()
+	//numSuccessfulValidations += 1
+	//if (numSuccessfulValidations % 100 == 1) {
+	//	log.Println(fmt.Sprintf("Validated %v requests.", numSuccessfulValidations))
+	//}
+	//validationLock.Unlock()
 	return validator.GoGlobalState{}, err
 }
 
@@ -1030,7 +1031,7 @@ func NewValidationServerAPI(spawner validator.ValidationSpawner) *ValidationServ
 
 	// DEBUG: run this command to process the saved validation inputs
 	// else comment both out and run validator live
-	processSavedInputs()
+	//processSavedInputs()
 	//findPreimageInFiles()
 
 	return &ValidationServerAPI{spawner}

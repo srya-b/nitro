@@ -212,9 +212,12 @@ func ProduceBlockAdvanced(
 
 	// We'll check that the block can fit each message, so this pool is set to not run out
 	gethGas := core.GasPool(l2pricing.GethBlockGasLimit)
+	log.Info("")
+	log.Info("")
 
 	for len(txes) > 0 || len(redeems) > 0 {
 		// repeatedly process the next tx, doing redeems created along the way in FIFO order
+		log.Info("New Transaction")
 
 		var tx *types.Transaction
 		var options *arbitrum_types.ConditionalOptions
@@ -314,6 +317,8 @@ func ProduceBlockAdvanced(
 			snap := statedb.Snapshot()
 			statedb.SetTxContext(tx.Hash(), len(receipts)) // the number of successful state transitions
 
+			log.Info("ApplyTransaction")
+			log.Info("Root before:", "n", statedb.RootString())
 			gasPool := gethGas
 			blockContext := core.NewEVMBlockContext(header, chainContext, &header.Coinbase)
 			evm := vm.NewEVM(blockContext, statedb, chainConfig, vm.Config{})
@@ -329,6 +334,8 @@ func ProduceBlockAdvanced(
 					return hooks.PostTxFilter(header, statedb, arbState, tx, sender, dataGas, result)
 				},
 			)
+			log.Info("Root after", "n", statedb.RootString())
+			log.Info("Done applying transaction")
 			if err != nil {
 				// Ignore this transaction if it's invalid under the state transition function
 				statedb.RevertToSnapshot(snap)
@@ -459,6 +466,8 @@ func ProduceBlockAdvanced(
 		if isUserTx {
 			userTxsProcessed++
 		}
+		log.Info("")
+		log.Info("")
 	}
 
 	if statedb.IsTxFiltered() {

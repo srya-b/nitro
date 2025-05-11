@@ -1,3 +1,15 @@
+New Reading from State
+======================
+All committed state is now accessed through a Reader.
+The Reader implements all the operations for getting committed state.
+StateDB is initialized with a multiStateReader which maintains a list 
+	[ flatReader, trieReader ]
+WHen getting an account, is loops through the readers and grabs the first one that returns something.
+Therefore it reads from the flatReader first (a snapshot) and then reads from the trieReader if that failes.
+Reader needs implementations for getting trie state specifically.
+QUESTION: is the snapshot ever more up to date than the trie in the database??
+
+
 What do we really need to store?
 ================================
 At a high level, what we want to log is all parts of the state that a node

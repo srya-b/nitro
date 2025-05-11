@@ -166,10 +166,10 @@ func ProduceBlockCustom(
 	lastBlockHeader *types.Header,
 	statedb *state.StateDB,
 	chainContext core.ChainContext,
-	chainConfig *params.ChainConfig,
 	isMsgForPrefetch bool,
 	runMode core.MessageRunMode,
 ) (*types.Block, types.Receipts, error) {
+	chainConfig := chainContext.Config()
 	txes, err := ParseL2Transactions(message, chainConfig.ChainID)
 	if err != nil {
 		log.Warn("error parsing incoming message", "err", err)
@@ -178,7 +178,7 @@ func ProduceBlockCustom(
 
 	hooks := NoopSequencingHooks()
 	return ProduceBlockAdvancedCustom(
-		message.Header, txes, delayedMessagesRead, lastBlockHeader, statedb, chainContext, chainConfig, hooks, isMsgForPrefetch, runMode,
+		message.Header, txes, delayedMessagesRead, lastBlockHeader, statedb, chainContext, hooks, isMsgForPrefetch, runMode,
 	)
 }
 

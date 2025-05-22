@@ -1,3 +1,13 @@
+discord message: 
+I think I'm fundamentally misnuderstanding something about how state is stored in geth. At a high-level what I'm trying to do is log all the nodes in the state trie (and storage tries of addresses) that are touched during validation. 
+
+I've modified the journal to track all the information and I log the pre-state of all touched trie nodes in `statedb.Finalise` and logging all post data in `statedb.IntermediateRoot`. The issue that I'm running into is this: an account `A` has its root updated in block `n`. In block `n+1` reads from the account go through the `reader.flatReader` and if you try to get the storage trie of that account (through `reader.trieReader,` or from the database using `stateObject.getTrie` ) the database returns an error that the root hash doesn't exist. However, the flatReader still returns a value. My question is why isn't it possble to retrieve the trie of this account. Since this is a different block that data should have been committed to the database at the end of the last block. Why should the flat reader have the data but the database that statedb points to doesn't have that root hash?
+
+It doesn't really make sense I suspect that the same statedb persists.
+The only way to really know what is happening is to print out the full state of statedb (what dictionaries and stuff is the address in at the failure). 
+The startLogger call says it's already active so something funky is happening.
+Also track all the calls to Copy and New and IntermediateRoot and Commit
+
 New Reading from State
 ======================
 All committed state is now accessed through a Reader.

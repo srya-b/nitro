@@ -1,6 +1,3 @@
-// Copyright 2021-2024, Offchain Labs, Inc.
-// For license information, see https://github.com/OffchainLabs/nitro/blob/master/LICENSE.md
-
 package arbos
 
 import (
@@ -27,118 +24,7 @@ import (
 	"github.com/offchainlabs/nitro/util/arbmath"
 )
 
-// set by the precompile module, to avoid a package dependence cycle
-var ArbRetryableTxAddress common.Address
-var ArbSysAddress common.Address
-var InternalTxStartBlockMethodID [4]byte
-var InternalTxBatchPostingReportMethodID [4]byte
-var RedeemScheduledEventID common.Hash
-var L2ToL1TransactionEventID common.Hash
-var L2ToL1TxEventID common.Hash
-var EmitReedeemScheduledEvent func(*vm.EVM, uint64, uint64, [32]byte, [32]byte, common.Address, *big.Int, *big.Int) error
-var EmitTicketCreatedEvent func(*vm.EVM, [32]byte) error
-
-// A helper struct that implements String() by marshalling to JSON.
-// This is useful for logging because it's lazy, so if the log level is too high to print the transaction,
-// it doesn't waste compute marshalling the transaction when the result wouldn't be used.
-type printTxAsJson struct {
-	tx *types.Transaction
-}
-
-func (p printTxAsJson) String() string {
-	json, err := p.tx.MarshalJSON()
-	if err != nil {
-		return fmt.Sprintf("[error marshalling tx: %v]", err)
-	}
-	return string(json)
-}
-
-type L1Info struct {
-	poster        common.Address
-	l1BlockNumber uint64
-	l1Timestamp   uint64
-}
-
-func (info *L1Info) Equals(o *L1Info) bool {
-	return info.poster == o.poster && info.l1BlockNumber == o.l1BlockNumber && info.l1Timestamp == o.l1Timestamp
-}
-
-func (info *L1Info) L1BlockNumber() uint64 {
-	return info.l1BlockNumber
-}
-
-func createNewHeader(prevHeader *types.Header, l1info *L1Info, state *arbosState.ArbosState, chainConfig *params.ChainConfig) *types.Header {
-	l2Pricing := state.L2PricingState()
-	baseFee, err := l2Pricing.BaseFeeWei()
-	state.Restrict(err)
-
-	var lastBlockHash common.Hash
-	blockNumber := big.NewInt(0)
-	timestamp := uint64(0)
-	coinbase := common.Address{}
-	if l1info != nil {
-		timestamp = l1info.l1Timestamp
-		coinbase = l1info.poster
-	}
-	extra := common.Hash{}.Bytes()
-	mixDigest := common.Hash{}
-	if prevHeader != nil {
-		lastBlockHash = prevHeader.Hash()
-		blockNumber.Add(prevHeader.Number, big.NewInt(1))
-		if timestamp < prevHeader.Time {
-			timestamp = prevHeader.Time
-		}
-		copy(extra, prevHeader.Extra)
-		mixDigest = prevHeader.MixDigest
-	}
-	header := &types.Header{
-		ParentHash:  lastBlockHash,
-		UncleHash:   types.EmptyUncleHash, // Post-merge Ethereum will require this to be types.EmptyUncleHash
-		Coinbase:    coinbase,
-		Root:        [32]byte{},    // Filled in later
-		TxHash:      [32]byte{},    // Filled in later
-		ReceiptHash: [32]byte{},    // Filled in later
-		Bloom:       [256]byte{},   // Filled in later
-		Difficulty:  big.NewInt(1), // Eventually, Ethereum plans to require this to be zero
-		Number:      blockNumber,
-		GasLimit:    l2pricing.GethBlockGasLimit,
-		GasUsed:     0,
-		Time:        timestamp,
-		Extra:       extra,     // used by NewEVMBlockContext
-		MixDigest:   mixDigest, // used by NewEVMBlockContext
-		Nonce:       [8]byte{}, // Filled in later; post-merge Ethereum will require this to be zero
-		BaseFee:     baseFee,
-	}
-	return header
-}
-
-type ConditionalOptionsForTx []*arbitrum_types.ConditionalOptions
-
-type SequencingHooks struct {
-	TxErrors                []error                                                                                                                                                                 // This can be unset
-	DiscardInvalidTxsEarly  bool                                                                                                                                                                    // This can be unset
-	PreTxFilter             func(*params.ChainConfig, *types.Header, *state.StateDB, *arbosState.ArbosState, *types.Transaction, *arbitrum_types.ConditionalOptions, common.Address, *L1Info) error // This has to be set. Writes to *state.StateDB object should be avoided to prevent invalid state from permeating
-	PostTxFilter            func(*types.Header, *state.StateDB, *arbosState.ArbosState, *types.Transaction, common.Address, uint64, *core.ExecutionResult) error                                    // This has to be set
-	BlockFilter             func(*types.Header, *state.StateDB, types.Transactions, types.Receipts) error                                                                                           // This can be unset
-	ConditionalOptionsForTx []*arbitrum_types.ConditionalOptions                                                                                                                                    // This can be unset
-}
-
-func NoopSequencingHooks() *SequencingHooks {
-	return &SequencingHooks{
-		[]error{},
-		false,
-		func(*params.ChainConfig, *types.Header, *state.StateDB, *arbosState.ArbosState, *types.Transaction, *arbitrum_types.ConditionalOptions, common.Address, *L1Info) error {
-			return nil
-		},
-		func(*types.Header, *state.StateDB, *arbosState.ArbosState, *types.Transaction, common.Address, uint64, *core.ExecutionResult) error {
-			return nil
-		},
-		nil,
-		nil,
-	}
-}
-
-func ProduceBlock(
+func ProduceBlockCustom(
 	message *arbostypes.L1IncomingMessage,
 	delayedMessagesRead uint64,
 	lastBlockHeader *types.Header,
@@ -155,12 +41,13 @@ func ProduceBlock(
 	}
 
 	hooks := NoopSequencingHooks()
-	return ProduceBlockAdvanced(
+	return ProduceBlockAdvancedCustom(
 		message.Header, txes, delayedMessagesRead, lastBlockHeader, statedb, chainContext, hooks, isMsgForPrefetch, runMode,
 	)
 }
 
-func ProduceBlockAdvanced(
+// A bit more flexible than ProduceBlock for use in the sequencer.
+func ProduceBlockAdvancedCustom(
 	l1Header *arbostypes.L1IncomingMessageHeader,
 	txes types.Transactions,
 	delayedMessagesRead uint64,
@@ -211,9 +98,12 @@ func ProduceBlockAdvanced(
 
 	// We'll check that the block can fit each message, so this pool is set to not run out
 	gethGas := core.GasPool(l2pricing.GethBlockGasLimit)
+	log.Info("")
+	log.Info("")
 
 	for len(txes) > 0 || len(redeems) > 0 {
 		// repeatedly process the next tx, doing redeems created along the way in FIFO order
+		log.Info("New Transaction")
 
 		var tx *types.Transaction
 		var options *arbitrum_types.ConditionalOptions
@@ -313,6 +203,13 @@ func ProduceBlockAdvanced(
 			snap := statedb.Snapshot()
 			statedb.SetTxContext(tx.Hash(), len(receipts)) // the number of successful state transitions
 
+			//log.Info("Root before:", "n", statedb.RootString())
+			//if !isUserTx {
+			//	log.Info("Isn't user transaction")
+			//	statedb.StopLogger()
+			//} else {
+			//	statedb.StartLogger()
+			//}
 			gasPool := gethGas
 			blockContext := core.NewEVMBlockContext(header, chainContext, &header.Coinbase)
 			evm := vm.NewEVM(blockContext, statedb, chainConfig, vm.Config{})
@@ -334,6 +231,22 @@ func ProduceBlockAdvanced(
 			if statedb.HasLogger() {
 				log.Info("<><><><><><> tx boundary stop <><><><>")
 			}
+			//_ = statedb.OpsCalled()
+			//pathHashes := statedb.PathsTaken()
+			//totalOps := statedb.TotalOps()
+			//log.Info("[produceblockadvanged] total ops", "n", totalOps)
+			//log.Info("[produceblockadvanced] total paths", "n", len(pathHashes))
+			//for i:=0; i < totalOps; i++ {
+			//	log.Info("Op", "n", opsCalled[i])
+			//	log.Info("Hashes", "n", pathHashes)
+			//}
+			//statedb.PathsTaken = pathHashes
+			//statedb.OpsCalled = opsCalled
+			//statedb.TotalOps = totalOps
+
+			//log.Info("Ops called", statedb.OpsCalled)
+			//log.Info("Root after", "n", statedb.RootString())
+			log.Info("Done applying transaction")
 			if err != nil {
 				// Ignore this transaction if it's invalid under the state transition function
 				statedb.RevertToSnapshot(snap)
@@ -464,6 +377,8 @@ func ProduceBlockAdvanced(
 		if isUserTx {
 			userTxsProcessed++
 		}
+		log.Info("")
+		log.Info("")
 	}
 
 	if statedb.IsTxFiltered() {
@@ -478,9 +393,11 @@ func ProduceBlockAdvanced(
 
 	binary.BigEndian.PutUint64(header.Nonce[:], delayedMessagesRead)
 
+	log.Info("Finalize block")
 	FinalizeBlock(header, complete, statedb, chainConfig)
 
 	// Touch up the block hashes in receipts
+	log.Info("New blcok")
 	tmpBlock := types.NewBlock(header, &types.Body{Transactions: complete}, receipts, trie.NewStackTrie(nil))
 	blockHash := tmpBlock.Hash()
 
@@ -497,6 +414,7 @@ func ProduceBlockAdvanced(
 		return nil, nil, fmt.Errorf("block has %d txes but %d receipts", len(block.Transactions()), len(receipts))
 	}
 
+	log.Info("balance delta")
 	balanceDelta := statedb.GetUnexpectedBalanceDelta()
 	if !arbmath.BigEquals(balanceDelta, expectedBalanceDelta) {
 		// Fail if funds have been minted or debug mode is enabled (i.e. this is a test)
@@ -507,45 +425,7 @@ func ProduceBlockAdvanced(
 		log.Error("Unexpected total balance delta", "delta", balanceDelta, "expected", expectedBalanceDelta)
 	}
 
+	log.Info("Return block")
 	return block, receipts, nil
 }
 
-
-// Also sets header.Root
-func FinalizeBlock(header *types.Header, txs types.Transactions, statedb vm.StateDB, chainConfig *params.ChainConfig) {
-	if header != nil {
-		if header.Number.Uint64() < chainConfig.ArbitrumChainParams.GenesisBlockNum {
-			panic("cannot finalize blocks before genesis")
-		}
-
-		var sendRoot common.Hash
-		var sendCount uint64
-		var nextL1BlockNumber uint64
-		var arbosVersion uint64
-
-		if header.Number.Uint64() == chainConfig.ArbitrumChainParams.GenesisBlockNum {
-			arbosVersion = chainConfig.ArbitrumChainParams.InitialArbOSVersion
-		} else {
-			state, err := arbosState.OpenSystemArbosState(statedb, nil, true)
-			if err != nil {
-				newErr := fmt.Errorf("%w while opening arbos state. Block: %d root: %v", err, header.Number, header.Root)
-				panic(newErr)
-			}
-			// Add outbox info to the header for client-side proving
-			acc := state.SendMerkleAccumulator()
-			sendRoot, _ = acc.Root()
-			sendCount, _ = acc.Size()
-			nextL1BlockNumber, _ = state.Blockhashes().L1BlockNumber()
-			arbosVersion = state.ArbOSVersion()
-		}
-		arbitrumHeader := types.HeaderInfo{
-			SendRoot:           sendRoot,
-			SendCount:          sendCount,
-			L1BlockNumber:      nextL1BlockNumber,
-			ArbOSFormatVersion: arbosVersion,
-		}
-		arbitrumHeader.UpdateHeaderWithInfo(header)
-		log.Info("Finalizeblock IntermediateRoot")
-		header.Root = statedb.IntermediateRoot(true)
-	}
-}

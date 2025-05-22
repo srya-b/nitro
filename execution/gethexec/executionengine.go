@@ -33,7 +33,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
-	"github.com/ethereum/go-ethereum/core/stateless"
+	_"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -545,117 +545,6 @@ func writeAndLog(pprof, trace *bytes.Buffer) {
 	log.Info("Transactions sequencing took longer than 2 seconds, created pprof and trace files", "pprof", pprofFile, "traceFile", traceFile)
 }
 
-func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbostypes.L1IncomingMessageHeader, txes types.Transactions, hooks *arbos.SequencingHooks, timeboostedTxs map[common.Hash]struct{}) (*types.Block, error) {
-	log.Info("sequenceTransactionsWithBlockMutex")
-	lastBlockHeader, err := s.getCurrentHeader()
-	if err != nil {
-		return nil, err
-	}
-
-	statedb, err := s.bc.StateAt(lastBlockHeader.Root)
-	if err != nil {
-		return nil, err
-	}
-	lastBlock := s.bc.GetBlock(lastBlockHeader.Hash(), lastBlockHeader.Number.Uint64())
-	if lastBlock == nil {
-		return nil, errors.New("can't find block for current header")
-	}
-	var witness *stateless.Witness
-	if s.bc.GetVMConfig().StatelessSelfValidation {
-		witness, err = stateless.NewWitness(lastBlock.Header(), s.bc)
-		if err != nil {
-			return nil, err
-		}
-	}
-	statedb.StartPrefetcher("Sequencer", witness)
-	defer statedb.StopPrefetcher()
-
-	delayedMessagesRead := lastBlockHeader.Nonce.Uint64()
-	statedb.StartLogger()
-
-	startTime := time.Now()
-	block, receipts, err := arbos.ProduceBlockAdvancedCustom(
-		header,
-		txes,
-		delayedMessagesRead,
-		lastBlockHeader,
-		statedb,
-		s.bc,
-		//s.bc.Config(),
-		hooks,
-		false,
-		core.MessageCommitMode,
-	)
-	if err != nil {
-		return nil, err
-	}
-	log.Info("[sequencer transactions] total ops", "n", statedb.TotalOps)
-	log.Info("Ops", "n", len(statedb.OpsCalled()))
-	//log.Info("Length", "n", len(statedb.PathsTaken))
-	//log.Info("Length", "n", len(staetdb.accounts))
-	//log.Info("Length", "n", len(statedb.logs))
-	//for i:=0; i < statedb.TotalOps; i++ {
-	//	log.Info("Op", "", statedb.OpsCalled[i])
-	//	log.Info("Hashes", "", statedb.PathsTaken[i])
-	//}
-
-	blockCalcTime := time.Since(startTime)
-	blockExecutionTimer.Update(blockCalcTime)
-	if len(hooks.TxErrors) != len(txes) {
-		return nil, fmt.Errorf("unexpected number of error results: %v vs number of txes %v", len(hooks.TxErrors), len(txes))
-	}
-
-	if len(receipts) == 0 {
-		return nil, nil
-	}
-
-	allTxsErrored := true
-	for _, err := range hooks.TxErrors {
-		if err == nil {
-			allTxsErrored = false
-			break
-		}
-	}
-	if allTxsErrored {
-		return nil, nil
-	}
-
-	msg, err := MessageFromTxes(header, txes, hooks.TxErrors)
-	if err != nil {
-		return nil, err
-	}
-
-	msgIdx, err := s.BlockNumberToMessageIndex(lastBlockHeader.Number.Uint64() + 1)
-	if err != nil {
-		return nil, err
-	}
-
-	msgWithMeta := arbostypes.MessageWithMetadata{
-		Message:             msg,
-		DelayedMessagesRead: delayedMessagesRead,
-	}
-	msgResult, err := s.resultFromHeader(block.Header())
-	if err != nil {
-		return nil, err
-	}
-
-	blockMetadata := s.blockMetadataFromBlock(block, timeboostedTxs)
-	_, err = s.consensus.WriteMessageFromSequencer(msgIdx, msgWithMeta, *msgResult, blockMetadata).Await(s.GetContext())
-	if err != nil {
-		return nil, err
-	}
-
-	// Only write the block after we've written the messages, so if the node dies in the middle of this,
-	// it will naturally recover on startup by regenerating the missing block.
-	err = s.appendBlock(block, statedb, receipts, blockCalcTime)
-	if err != nil {
-		return nil, err
-	}
-	s.cacheL1PriceDataOfMsg(msgIdx, receipts, block, false)
-
-	return block, nil
-}
-
 func (s *ExecutionEngine) sequenceTransactionsWithBlockMutex(header *arbostypes.L1IncomingMessageHeader, txes types.Transactions, hooks *arbos.SequencingHooks, timeboostedTxs map[common.Hash]struct{}) (*types.Block, error) {
 	lastBlockHeader, err := s.getCurrentHeader()
 	if err != nil {
@@ -670,15 +559,15 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutex(header *arbostypes.
 	if lastBlock == nil {
 		return nil, errors.New("can't find block for current header")
 	}
-	var witness *stateless.Witness
-	if s.bc.GetVMConfig().StatelessSelfValidation {
-		witness, err = stateless.NewWitness(lastBlock.Header(), s.bc)
-		if err != nil {
-			return nil, err
-		}
-	}
-	statedb.StartPrefetcher("Sequencer", witness)
-	defer statedb.StopPrefetcher()
+	//var witness *stateless.Witness
+	//if s.bc.GetVMConfig().StatelessSelfValidation {
+	//	witness, err = stateless.NewWitness(lastBlock.Header(), s.bc)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//}
+	//statedb.StartPrefetcher("Sequencer", witness)
+	//defer statedb.StopPrefetcher()
 	delayedMessagesRead := lastBlockHeader.Nonce.Uint64()
 
 	startTime := time.Now()
@@ -939,66 +828,6 @@ func (s *ExecutionEngine) MessageIndexToBlockNumber(msgIdx arbutil.MessageIndex)
 	return uint64(msgIdx) + s.GetGenesisBlockNumber()
 }
 
-func (s *ExecutionEngine) createBlockFromNextMessageCustom(msg *arbostypes.MessageWithMetadata, isMsgForPrefetch bool) (*types.Block, *state.StateDB, types.Receipts, error) {
-	log.Info("createBlockFromNextMessageCustom")
-	currentHeader := s.bc.CurrentBlock()
-	if currentHeader == nil {
-		return nil, nil, nil, errors.New("failed to get current block header")
-	}
-
-	currentBlock := s.bc.GetBlock(currentHeader.Hash(), currentHeader.Number.Uint64())
-	if currentBlock == nil {
-		return nil, nil, nil, errors.New("can't find block for current header")
-	}
-
-	err := s.bc.RecoverState(currentBlock)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to recover block %v state: %w", currentBlock.Number(), err)
-	}
-
-	statedb, err := s.bc.StateAt(currentHeader.Root)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	var witness *stateless.Witness
-	if s.bc.GetVMConfig().StatelessSelfValidation {
-		witness, err = stateless.NewWitness(currentBlock.Header(), s.bc)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	}
-	statedb.StartPrefetcher("TransactionStreamer", witness)
-	defer statedb.StopPrefetcher()
-
-	runMode := core.MessageCommitMode
-	if isMsgForPrefetch {
-		runMode = core.MessageReplayMode
-	}
-
-	statedb.StartLogger()
-	block, receipts, err := arbos.ProduceBlockCustom(
-		msg.Message,
-		msg.DelayedMessagesRead,
-		currentHeader,
-		statedb,
-		s.bc,
-		//s.bc.Config(),
-		isMsgForPrefetch,
-		runMode,
-	)
-	log.Info("[create block] total ops", "n", statedb.TotalOps)
-	log.Info("Hashes", "o", len(statedb.OpsCalled()))
-	//log.Info("Length", "n", len(statedb.PathsTaken))
-	//log.Info("Length", "n", len(staetdb.accounts))
-	//log.Info("Length", "n", len(statedb.logs))
-	//for i:=0; i < statedb.TotalOps; i++ {
-	//	log.Info("Op", "", statedb.OpsCalled[i])
-	//	log.Info("Hashes", "", statedb.PathsTaken[i])
-	//}
-
-	return block, statedb, receipts, err
-}
-
 func (s *ExecutionEngine) createBlockFromNextMessage(msg *arbostypes.MessageWithMetadata, isMsgForPrefetch bool) (*types.Block, *state.StateDB, types.Receipts, error) {
 	currentHeader := s.bc.CurrentBlock()
 	if currentHeader == nil {
@@ -1019,15 +848,16 @@ func (s *ExecutionEngine) createBlockFromNextMessage(msg *arbostypes.MessageWith
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	var witness *stateless.Witness
-	if s.bc.GetVMConfig().StatelessSelfValidation {
-		witness, err = stateless.NewWitness(currentBlock.Header(), s.bc)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	}
-	statedb.StartPrefetcher("TransactionStreamer", witness)
-	defer statedb.StopPrefetcher()
+	//var witness *stateless.Witness
+	//if s.bc.GetVMConfig().StatelessSelfValidation {
+	//	witness, err = stateless.NewWitness(currentBlock.Header(), s.bc)
+	//	if err != nil {
+	//		return nil, nil, nil, err
+	//	}
+	//}
+	//statedb.StartPrefetcher("TransactionStreamer", witness)
+	//defer statedb.StopPrefetcher()
+	statedb.StopPrefetcher()
 
 	runMode := core.MessageCommitMode
 	if isMsgForPrefetch {
@@ -1254,95 +1084,6 @@ func (s *ExecutionEngine) DigestMessage(msgIdx arbutil.MessageIndex, msg *arbost
 	log.Info("DigestMessage")
 	defer s.createBlocksMutex.Unlock()
 	return s.digestMessageWithBlockMutexCustom(msgIdx, msg, msgForPrefetch)
-}
-
-func (s *ExecutionEngine) digestMessageWithBlockMutexCustom(msgIdxToDigest arbutil.MessageIndex, msg *arbostypes.MessageWithMetadata, msgForPrefetch *arbostypes.MessageWithMetadata) (*execution.MessageResult, error) {
-	log.Info("digestMessageWithBlockMutexCustom")
-	currentHeader, err := s.getCurrentHeader()
-	if err != nil {
-		return nil, err
-	}
-	curMsgIdx, err := s.BlockNumberToMessageIndex(currentHeader.Number.Uint64())
-	if err != nil {
-		return nil, err
-	}
-	if curMsgIdx+1 != msgIdxToDigest {
-		return nil, fmt.Errorf("wrong message number in digest got %d expected %d", msgIdxToDigest, curMsgIdx+1)
-	}
-
-	startTime := time.Now()
-	//if s.prefetchBlock && msgForPrefetch != nil {
-	//	go func() {
-	//		_, _, _, err := s.createBlockFromNextMessage(msgForPrefetch, true)
-	//		if err != nil {
-	//			return
-	//		}
-	//	}()
-	//}
-
-	block, statedb, receipts, err := s.createBlockFromNextMessageCustom(msg, false)
-	if err != nil {
-		return nil, err
-	}
-	blockCalcTime := time.Since(startTime)
-	blockExecutionTimer.Update(blockCalcTime)
-
-	err = s.appendBlock(block, statedb, receipts, blockCalcTime)
-	if err != nil {
-		return nil, err
-	}
-	s.cacheL1PriceDataOfMsg(msgIdxToDigest, receipts, block, false)
-
-	if time.Now().After(s.nextScheduledVersionCheck) {
-		s.nextScheduledVersionCheck = time.Now().Add(time.Minute)
-		arbState, err := arbosState.OpenSystemArbosState(statedb, nil, true)
-		if err != nil {
-			return nil, err
-		}
-		version, timestampInt, err := arbState.GetScheduledUpgrade()
-		if err != nil {
-			return nil, err
-		}
-		var timeUntilUpgrade time.Duration
-		var timestamp time.Time
-		if timestampInt == 0 {
-			// This upgrade will take effect in the next block
-			timestamp = time.Now()
-		} else {
-			// This upgrade is scheduled for the future
-			timestamp = time.Unix(int64(timestampInt), 0)
-			timeUntilUpgrade = time.Until(timestamp)
-		}
-		maxSupportedVersion := chaininfo.ArbitrumDevTestChainConfig().ArbitrumChainParams.InitialArbOSVersion
-		logLevel := log.Warn
-		if timeUntilUpgrade < time.Hour*24 {
-			logLevel = log.Error
-		}
-		if version > maxSupportedVersion {
-			logLevel(
-				"you need to update your node to the latest version before this scheduled ArbOS upgrade",
-				"timeUntilUpgrade", timeUntilUpgrade,
-				"upgradeScheduledFor", timestamp,
-				"maxSupportedArbosVersion", maxSupportedVersion,
-				"pendingArbosUpgradeVersion", version,
-			)
-		}
-	}
-
-	sharedmetrics.UpdateSequenceNumberInBlockGauge(msgIdxToDigest)
-	s.latestBlockMutex.Lock()
-	s.latestBlock = block
-	s.latestBlockMutex.Unlock()
-	select {
-	case s.newBlockNotifier <- struct{}{}:
-	default:
-	}
-
-	msgResult, err := s.resultFromHeader(block.Header())
-	if err != nil {
-		return nil, err
-	}
-	return msgResult, nil
 }
 
 func (s *ExecutionEngine) digestMessageWithBlockMutex(msgIdxToDigest arbutil.MessageIndex, msg *arbostypes.MessageWithMetadata, msgForPrefetch *arbostypes.MessageWithMetadata) (*execution.MessageResult, error) {

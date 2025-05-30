@@ -343,6 +343,9 @@ $(output_root)/bin/seq-coordinator-invalidate: $(DEP_PREDICATE) build-node-deps
 $(output_root)/bin/nitro-val: $(DEP_PREDICATE) build-node-deps
 	go build $(GOLANG_PARAMS) -o $@ "$(CURDIR)/cmd/nitro-val"
 
+$(output_root)/bin/state-log: $(DEP_PREDICATE) build-node-deps
+	go build $(GOLANG_PARAMS) -o $@ "$(CURDIR)/cmd/state-log"
+
 $(output_root)/bin/seq-coordinator-manager: $(DEP_PREDICATE) build-node-deps
 	go build $(GOLANG_PARAMS) -o $@ "$(CURDIR)/cmd/seq-coordinator-manager"
 

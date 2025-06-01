@@ -128,10 +128,21 @@ func samplePostData(postObj *state.PostLog) {
 	}
 }
 
+func ignoreJournal(j [][]state.LogJournalEntry) bool {
+	for _, jn := range j {
+		if len(jn) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func samplePreData(preObj *state.PreLog) {
-	if len(preObj.Journals) == 0 {
-		
-	log.Info("Read pre data", "root", preObj.Root, "data", preObj.Journals[0][0:4])
+	if len(preObj.Journals) > 0 {
+		log.Info("Read pre data", "root", preObj.Root, "data", preObj.Journals[0][0:min(4, len(preObj.Journals[0]))])
+	} else {
+		log.Info("Journal is empty")
+	}
 	log.Info("Emptys", "list", preObj.EmptyDeletes)
 }
 
@@ -164,6 +175,11 @@ func hashAddressSet(m map[common.Address]bool) map[common.Hash]bool {
 func validatePreLog(preObj *state.PreLog) bool {
 	// check that the trie finds all the accounts in the trie
 	// get all accounts found by the trie (hashed keys)
+	if ignoreJournal(preObj.Journals) {
+		log.Info("An empty journal is valid.")
+		return true
+	}
+
 	preKeys := ExploreTrie(preObj)
 	accountsFound := listToSet(preKeys)
 
@@ -192,6 +208,11 @@ func validatePrePost(preObj *state.PreLog, postObj *state.PostLog) bool {
 	// Go through the journal and determine which accounts already existed before this block
 	// and check that the same accounts are found when the trie encoded by the node hashes is 
 	// traversed.
+	if ignoreJournal(preObj.Journals) {
+		log.Info("An empty journal is valid.")
+		return true
+	}
+
 	preKeys := ExploreTrie(preObj)
 	accountsFound := listToSet(preKeys)
 
@@ -244,31 +265,41 @@ func main() {
 	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
 
 	// get all the pre and post data for block 0
+	one := big.NewInt(1)
 	blockNo := big.NewInt(0)
 	version := 1
 
 	for {	
-		content, err := readPre(blockNo, version)
-		if err != nil {
-			log.Error("Error on pre", "e", err, "version", version)
-			break	
+		done := false
+		for {
+			content, err := readPre(blockNo, version)
+			if err != nil {
+				log.Error("Error on pre", "e", err, "version", version)
+				done = true
+				break	
+			}
+			preObj := preFromBytes(content)
+			samplePreData(preObj)
+
+			content, err = readPost(blockNo, version)
+			if err != nil {
+				log.Error("Error on post", "e", err, "version", version)
+				done = true
+				break	
+			}
+			postObj := postFromBytes(content)
+			// print out some of the data, passes visual inspection
+			samplePostData(postObj)
+
+			state.PrintJournal(preObj.Journals)
+
+			validatePrePost(preObj, postObj)
+			version++
 		}
-		preObj := preFromBytes(content)
-		samplePreData(preObj)
-
-		content, err = readPost(blockNo, version)
-		if err != nil {
-			log.Error("Error on post", "e", err, "version", version)
-			break	
+		if done {
+			break 
 		}
-		postObj := postFromBytes(content)
-		// print out some of the data, passes visual inspection
-		samplePostData(postObj)
-
-		state.PrintJournal(preObj.Journals)
-
-		validatePrePost(preObj, postObj)
-		version++
+		blockNo.Add(blockNo, one)
 	}
 
 

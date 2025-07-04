@@ -8,6 +8,7 @@ import (
     "github.com/ethereum/go-ethereum/common"
     "github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
+    "github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 
@@ -35,16 +36,21 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbos
 	if lastBlock == nil {
 		return nil, errors.New("can't find block for current header")
 	}
-	//var witness *stateless.Witness
-	//if s.bc.GetVMConfig().StatelessSelfValidation {
-	//	witness, err = stateless.NewWitness(lastBlock.Header(), s.bc)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//}
-	//statedb.StartPrefetcher("Sequencer", witness)
-	//defer statedb.StopPrefetcher()
-	statedb.StopPrefetcher()
+
+    flag := false
+	var witness *stateless.Witness
+    if flag {
+	    if s.bc.GetVMConfig().StatelessSelfValidation {
+	    	witness, err = stateless.NewWitness(lastBlock.Header(), s.bc)
+	    	if err != nil {
+	    		return nil, err
+	    	}
+	    }
+	    statedb.StartPrefetcher("Sequencer", witness)
+	    defer statedb.StopPrefetcher()
+    } else {
+	    statedb.StopPrefetcher()
+    }
 
 	delayedMessagesRead := lastBlockHeader.Nonce.Uint64()
 	logdir := "/home/user/state-logs"
@@ -153,16 +159,21 @@ func (s *ExecutionEngine) createBlockFromNextMessageCustom(msg *arbostypes.Messa
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	//var witness *stateless.Witness
-	//if s.bc.GetVMConfig().StatelessSelfValidation {
-	//	witness, err = stateless.NewWitness(currentBlock.Header(), s.bc)
-	//	if err != nil {
-	//		return nil, nil, nil, err
-	//	}
-	//}
-	//statedb.StartPrefetcher("TransactionStreamer", witness)
-	//defer statedb.StopPrefetcher()	
-	statedb.StopPrefetcher()
+
+    flag := false
+	var witness *stateless.Witness
+    if flag {
+	    if s.bc.GetVMConfig().StatelessSelfValidation {
+	    	witness, err = stateless.NewWitness(currentBlock.Header(), s.bc)
+	    	if err != nil {
+	    		return nil, nil, nil, err
+	    	}
+	    }
+	    statedb.StartPrefetcher("TransactionStreamer", witness)
+	    defer statedb.StopPrefetcher()	
+    } else {
+	    statedb.StopPrefetcher()
+    }
 
 	runMode := core.MessageCommitMode
 	if isMsgForPrefetch {

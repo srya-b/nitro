@@ -6,7 +6,7 @@ import (
 	_"io/ioutil"
 	_"encoding/json"
 	"math/big"
-	"reflect"
+	_"reflect"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -34,6 +34,28 @@ func ExploreTrie(obj state.Log) ([]common.Hash, bool) {
 	return count, true
 }
 
+//func ExploreTrieKeys(obj state.Log) (map[common.Hash][]common.Hash, bool) {
+func ExploreTrieKeys(obj state.Log) ([]common.Hash, bool) {
+	rootRaw, ok := obj.ANodes()[obj.RootHash()]
+	log.Info("Root", "roothash", obj.RootHash())
+	if !ok {
+		log.Info("Log", "accounts", len(obj.AccountsSeen()), "Anodes", obj.AccountsSeen())
+
+		//panic("Root isn't in nodes")
+		return nil, false
+	}
+	root, err := trie.PublicDecodeNode(nil, rootRaw)
+	if err != nil {
+		log.Error("COuldn't decode pre root")
+		panic(err)
+	}
+	testMap := MergeMaps(obj.ANodes(), obj.KNodes())
+	var emptyHash common.Hash
+	emptyHash.SetBytes(nil)
+	count := trie.TrieFromNodeCountKeys(root, testMap, []byte{}, emptyHash , false)
+	return count, true
+}
+
 func ValidatorTrieFromObj(obj state.Log) *trie.ValidatorTrie {
 	rootRaw, ok := obj.ANodes()[obj.RootHash()]
 	if !ok {
@@ -51,94 +73,6 @@ func ValidatorTrieFromObj(obj state.Log) *trie.ValidatorTrie {
 	}
 }
 
-func validatePreLog(preObj *state.PreLog) bool {
-	// check that the trie finds all the accounts in the trie
-	// get all accounts found by the trie (hashed keys)
-	if ignoreJournal(preObj.Journals) {
-		log.Info("An empty journal is valid.")
-		return true
-	}
-
-	preKeys, _ := ExploreTrie(preObj)
-	accountsFound := listToSet(preKeys)
-
-	// all the accounts that were created (unhashed) from the Journal
-	createdAccounts := state.GetCreatedAccounts(preObj.Journals)
-
-	// the accounts in the trie in objects
-	//accountsInTrie := make(map[common.Hash]bool)
-	accountsInTrie := hashAddressSet(mapSubtract(mapToSet(preObj.Accounts), createdAccounts))
-
-	eq := reflect.DeepEqual(accountsFound, accountsInTrie)
-	if eq {
-		log.Info("Equal found and in journal")
-		return true
-	} else {
-		log.Error("Differing", "accountsFound", accountsFound, "accountsInTrie", accountsInTrie)
-		return false
-	}
-}
-
-// Checks that the accounts reachable by traversing the saved hashes is the same
-// as the set if reading from the journal of this block. It's good validation
-// that the data collected is complete.
-func validatePrePost(preObj *state.PreLog, postObj *state.PostLog) bool {
-
-	// Go through the journal and determine which accounts already existed before this block
-	// and check that the same accounts are found when the trie encoded by the node hashes is 
-	// traversed.
-	//if ignoreJournal(preObj.Journals) {
-	if ignorePrePost(preObj, postObj) {
-		//log.Info("An empty journal is valid.")
-		return true
-	}
-
-	preKeys, ok := ExploreTrie(preObj)
-	_, exists := postObj.AccountNodes[preObj.Root]
-	log.Info("Does root exist in post?", "exists", exists)
-
-	if !ok {
-		// check whether the root is in the postLog
-		panic("")
-	}
-
-	accountsFound := listToSet(preKeys)
-
-	createdAccounts := state.GetCreatedAccounts(preObj.Journals)
-	deletedAccounts := state.GetDeletedAccounts(preObj.Journals)
-	emptyDeletes := GetEmptys(preObj)
-	// the deleted accounts including the ones that were deleted without a self destruct
-	// because they were empty when finalize was called
-	realDeletes := MergeMaps(deletedAccounts, emptyDeletes)
-
-	// traverse the trie from the hashes and get all the Hash(address) keys that are reached
-	accountsInTrie := hashAddressSet(mapSubtract(mapToSet(preObj.Accounts), createdAccounts))
-
-	eq := reflect.DeepEqual(accountsFound, accountsInTrie)
-	if !eq {
-		log.Error("Differing", "accountsFound", accountsFound, "accountsInTrie", accountsInTrie)
-		return false
-	}
-
-	// Process the post data and check that the trie encoded by the hashes in the post log
-	// include all of the deleted accounts from the pre data and all the newly created accounts
-	// read from the journal
-	postKeys, _ := ExploreTrie(postObj)
-	accountsFound = listToSet(postKeys)
-
-	// all preObj.Accounts should be in here
-	accountsInPre := hashAddressSet(mapSubtract(mapToSet(preObj.Accounts), realDeletes))
-	eq = reflect.DeepEqual(accountsFound, accountsInPre)
-	if !eq {
-		log.Error("the two maps", "accountsInPre", accountsInPre, "accountsFound", accountsFound)
-		panic("not equal")
-	} 
-	
-	log.Info("We all good")
-	return true
-}
-
-
 func ExploreTarget(target common.Address, preObj *state.PreLog, postObj *state.PostLog) bool {
 	if ignoreJournal(preObj.Journals) {
 		log.Info("An empty journal is valid.")
@@ -155,6 +89,9 @@ func ExploreTarget(target common.Address, preObj *state.PreLog, postObj *state.P
 
 func main() {
 	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
+
+	CheckPostDataLogsEverything()
+	return
 
 	ProcessLogs()
 	return	
@@ -316,10 +253,15 @@ func ProcessLogs() {
 				}	
 			}
 
+
+
 			// assert that the preLog's root is the same as the last postLog
 			if !checkPreLogRoot(preObj, prevRoot) {
 				panic("Prelog doesn' thave the same hash as the previous postLog")
 			}
+			validatePreLog(preObj)
+			done = true
+			break
 			//samplePostData(postObj)
 
 			// add the preLog accesses
@@ -327,6 +269,8 @@ func ProcessLogs() {
 			log.Info("Pre accesses", "l", len(preAccesses))
 
 			// consume upto and including all logs where 
+			// process the postLogs in the order of the journal with the updated nodes
+							
 
 
 			done = true

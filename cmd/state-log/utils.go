@@ -1,6 +1,7 @@
 package main
 
 import (
+    "fmt"
     "reflect"
 
 	"github.com/ethereum/go-ethereum/core/state"
@@ -68,6 +69,28 @@ func hashAddressSet(m map[common.Address]bool) map[common.Hash]bool {
 		log.Info("Preimage", "addr", addr, "hash", common.BytesToHash(trie.PublicHashKey(addr.Bytes())))
 	}
 	return out
+}
+
+type HashedKeyKey struct {
+    addr common.Hash
+    key common.Hash
+}
+
+func (k HashedKeyKey) Format(s fmt.State, c rune) {
+    k.addr.Format(s, c)
+    s.Write([]byte(", "))
+    k.key.Format(s, c)
+}
+
+func hashKeySet(m map[state.KeyKey]bool) map[HashedKeyKey]bool {
+    out := make(map[HashedKeyKey]bool)
+    for key := range m {
+        ha := common.BytesToHash(trie.PublicHashKey(key.Addr().Bytes()))
+        hk := common.BytesToHash(trie.PublicHashKey(key.Key().Bytes()))
+        //out[common.BytesToHash(trie.PublicHashKey(key.Key().Bytes()))] = m[key]
+        out[HashedKeyKey{ha, hk}] = m[key]
+    }
+    return out
 }
 
 func IsIdenticalPre(obj1 *state.PreLog, obj2 *state.PreLog) bool {

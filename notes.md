@@ -1,12 +1,89 @@
-discord message: 
-I think I'm fundamentally misnuderstanding something about how state is stored in geth. At a high-level what I'm trying to do is log all the nodes in the state trie (and storage tries of addresses) that are touched during validation. 
+Steps
+=====
 
-I've modified the journal to track all the information and I log the pre-state of all touched trie nodes in `statedb.Finalise` and logging all post data in `statedb.IntermediateRoot`. The issue that I'm running into is this: an account `A` has its root updated in block `n`. In block `n+1` reads from the account go through the `reader.flatReader` and if you try to get the storage trie of that account (through `reader.trieReader,` or from the database using `stateObject.getTrie` ) the database returns an error that the root hash doesn't exist. However, the flatReader still returns a value. My question is why isn't it possble to retrieve the trie of this account. Since this is a different block that data should have been committed to the database at the end of the last block. Why should the flat reader have the data but the database that statedb points to doesn't have that root hash?
+1. The prelog accesses are straightforward just count them in reverse order and
+we're good. We don't even need to access the trie in order to do any of these
+we already have the data.
+2. For the postlog we're dealing creates and deletes. 
+In this case we want to figure out the order in which nodes are created.
+For this we traverse the journal in reverse. 
+We set all the current hashes from the prelog as SEEN.
+Here we care only about things that change state or create/delete accounts that used to be in the trie.
 
-It doesn't really make sense I suspect that the same statedb persists.
-The only way to really know what is happening is to print out the full state of statedb (what dictionaries and stuff is the address in at the failure). 
-The startLogger call says it's already active so something funky is happening.
-Also track all the calls to Copy and New and IntermediateRoot and Commit
+It's okay to leave the data undeleted. 
+LogFinalize only operates on the current journal and it should work as expected.
+We need to possible update the checks we do in getAccountLogs within IntermediateRoot because currently if the trie returns nil on an account, we only accept this if the account is in `s.stateObjectsDestruct`. If IntermediateRoot actually clears this map, we need to do something else to say that it's OK for this to be the case. 
+IntermediateRoot applies all the non-delete and unapplied mutations (updates the state tries of the accounts)
+Then addresses with delete mutations are appended to a list of `deletedAddrs`. 
+(Finalize pushes obejcts that are either self destructs or empty into stateObjectsDestruct)
+The others go over mutations again and this time updates the account trie with changes to the accounts.
+Then we come in and log all this data.
+then loop through the deletedAddres and actually call trie.DeleteAccount
+IntermediateRoot doesn't delete stateObjectsDestructed
+
+
+What if we just push everything into the list as is.
+The hits only matter at the start of the block when doing the PreLog.
+After the PreLog there is no concept of a hit or miss anymore because we're only concerned with the new nodes here.
+In cases where a node has some path that is unchanged and the rest up to the root is changed then the changed ancestors would be added into the cache ahead of it which is fine we always want that ancestors are higher priority than descendants.
+We can take the diff and tell which nodes can be forgotten either because they were deleted or become new nodes. The access pattern of the new nodes should be the same as that of the journal ordering. 
+So the data we should output is the full list of acccesses from the pre log.
+The full list of accesses from the post log.
+The full list of deleted nodes without caring which were changed or dropped altogether.
+Do this for every block.
+
+## What about another finalise and intermediate root on commit?
+If we keep all the accounts seen around we'll be 
+
+
+Tracking Node Changes vs Creates/Deletes
+========================================
+If all nodes are deletes and creates, you lose any measure of cache hit or miss. 
+Every change to a full node will be a miss in the cache because you're not tracking that this node has just changed. 
+We don't see the intermediate trie state between inserts/deletes but only see it at the block level. 
+We can say that any node that retains its type from the start of the block to the end of the block.
+
+### Alternate
+We only care about hits/misses on reads for validation don't necessarily care about how internal nodes change other than there are new hashes we need to store and their preimages.
+First process which node hashes no longer exist and prune them from the cache. 
+Then if there more evictions need to happen we're good.
+If there are more evictions that need to happen then we evict children before parents.
+If we structure all accesses to a leaf in reverse order so that children are always accessed before parents, then we can use an off the shelf caching mechanism.
+
+set a cache size
+all of the prelog nodes are the ones needed for validation
+	given the journal we know the order in which these nodes are accessed
+	get operations are easy
+	created operations are just single nodes that we might need and we have stored the order in which they are accessed
+in the post log
+	we have a new trie but still not updating the cache
+	don't know the order in which trie nodes are actually created since a trie node created might be deleted later on
+		what we need is that the intermediateRoot function also returns to us the time ordered list of the order in which nodes were created and nodes that were deleted
+		a change in a specific node means that all its parents were changed after it but all its children can remain unchanged
+			actually maybe it isn't needed: we iterate backwards through the journal and that's the order they were last touched in
+			a node touched in journal[n] and all its parents are touched most recently
+			a node touched in journal[n-1] and not journal[n] but shared some parents with journal[n] we mark its parents not in journal[n] as being before journal[n]
+	we know the order in which the nodes were touched
+	we push them into an LRU and increase the size of the LRU while we process this block
+	a created account is definitely added to the trie here
+	determine which nodes don't exist and just delete them from the LRU linked list
+	
+
+# KEY QUESTION
+Do we count updates from writes as accesses or just the reads that it took to validate?
+	-- should an update to an internal node count as an access to bump if up in the LRU cache?
+	-- the invariant we want to ensure is that a parent is always ahead of the child in the LRU
+	-- if we don't push the parent as well then we don't push the account either, which would mean created accounts aren't bumped to the head
+		of the queue when they are pushed into the trie
+	-- if they are pushed into the LRU cache only when the create object actually happens then their updated parents will be behind them in the LRU cache and might be evicted
+		before them
+	-- maybe on created items we log the item into the cache when the object is created and then only push its parents into the cache when they are created
+		because it may be the case that a contract is created without ever touching the path it will be on in the trie so those nodes aren't even in the trie yet
+	-- if an object is created before a get, should it's update be couted before? the answer is YES
+		the cache should proceed as if every change to the trie happenes instantly rather than at the end of the block and compute the replacement policy that way
+
+
+
 
 New Reading from State
 ======================

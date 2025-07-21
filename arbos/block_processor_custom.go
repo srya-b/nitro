@@ -31,7 +31,7 @@ func ProduceBlockCustom(
 	statedb *state.StateDB,
 	chainContext core.ChainContext,
 	isMsgForPrefetch bool,
-	runMode core.MessageRunMode,
+	runCtx *core.MessageRunContext,
 ) (*types.Block, types.Receipts, error) {
 	chainConfig := chainContext.Config()
 	txes, err := ParseL2Transactions(message, chainConfig.ChainID)
@@ -42,7 +42,7 @@ func ProduceBlockCustom(
 
 	hooks := NoopSequencingHooks()
 	return ProduceBlockAdvancedCustom(
-		message.Header, txes, delayedMessagesRead, lastBlockHeader, statedb, chainContext, hooks, isMsgForPrefetch, runMode,
+		message.Header, txes, delayedMessagesRead, lastBlockHeader, statedb, chainContext, hooks, isMsgForPrefetch, runCtx,
 	)
 }
 
@@ -56,7 +56,7 @@ func ProduceBlockAdvancedCustom(
 	chainContext core.ChainContext,
 	sequencingHooks *SequencingHooks,
 	isMsgForPrefetch bool,
-	runMode core.MessageRunMode,
+	runCtx *core.MessageRunContext,
 ) (*types.Block, types.Receipts, error) {
 
 	arbState, err := arbosState.OpenSystemArbosState(statedb, nil, true)
@@ -98,8 +98,6 @@ func ProduceBlockAdvancedCustom(
 
 	// We'll check that the block can fit each message, so this pool is set to not run out
 	gethGas := core.GasPool(l2pricing.GethBlockGasLimit)
-	log.Info("")
-	log.Info("")
 
 	for len(txes) > 0 || len(redeems) > 0 {
 		// repeatedly process the next tx, doing redeems created along the way in FIFO order
@@ -203,13 +201,6 @@ func ProduceBlockAdvancedCustom(
 			snap := statedb.Snapshot()
 			statedb.SetTxContext(tx.Hash(), len(receipts)) // the number of successful state transitions
 
-			//log.Info("Root before:", "n", statedb.RootString())
-			//if !isUserTx {
-			//	log.Info("Isn't user transaction")
-			//	statedb.StopLogger()
-			//} else {
-			//	statedb.StartLogger()
-			//}
 			gasPool := gethGas
 			blockContext := core.NewEVMBlockContext(header, chainContext, &header.Coinbase)
 			evm := vm.NewEVM(blockContext, statedb, chainConfig, vm.Config{})
@@ -223,30 +214,16 @@ func ProduceBlockAdvancedCustom(
 				header,
 				tx,
 				&header.GasUsed,
-				runMode,
+				runCtx,
 				func(result *core.ExecutionResult) error {
 					return hooks.PostTxFilter(header, statedb, arbState, tx, sender, dataGas, result)
 				},
 			)
 			if statedb.HasLogger() {
-				log.Info("<><><><><><> tx boundary stop <><><><>")
+				log.Info("<><><><> tx boundary stop <><><><>")
 			}
-			//_ = statedb.OpsCalled()
-			//pathHashes := statedb.PathsTaken()
-			//totalOps := statedb.TotalOps()
-			//log.Info("[produceblockadvanged] total ops", "n", totalOps)
-			//log.Info("[produceblockadvanced] total paths", "n", len(pathHashes))
-			//for i:=0; i < totalOps; i++ {
-			//	log.Info("Op", "n", opsCalled[i])
-			//	log.Info("Hashes", "n", pathHashes)
-			//}
-			//statedb.PathsTaken = pathHashes
-			//statedb.OpsCalled = opsCalled
-			//statedb.TotalOps = totalOps
-
-			//log.Info("Ops called", statedb.OpsCalled)
-			//log.Info("Root after", "n", statedb.RootString())
 			log.Info("Done applying transaction")
+
 			if err != nil {
 				// Ignore this transaction if it's invalid under the state transition function
 				statedb.RevertToSnapshot(snap)
@@ -377,8 +354,6 @@ func ProduceBlockAdvancedCustom(
 		if isUserTx {
 			userTxsProcessed++
 		}
-		log.Info("")
-		log.Info("")
 	}
 
 	if statedb.IsTxFiltered() {
@@ -397,7 +372,7 @@ func ProduceBlockAdvancedCustom(
 	FinalizeBlock(header, complete, statedb, chainConfig)
 
 	// Touch up the block hashes in receipts
-	log.Info("New blcok")
+	log.Info("New block")
 	tmpBlock := types.NewBlock(header, &types.Body{Transactions: complete}, receipts, trie.NewStackTrie(nil))
 	blockHash := tmpBlock.Hash()
 

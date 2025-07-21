@@ -34,7 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
-	_"github.com/ethereum/go-ethereum/core/stateless"
+	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -562,15 +562,22 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutex(header *arbostypes.
 	if lastBlock == nil {
 		return nil, errors.New("can't find block for current header")
 	}
+
+	flag := true
 	var witness *stateless.Witness
-	if s.bc.GetVMConfig().StatelessSelfValidation {
-		witness, err = stateless.NewWitness(lastBlock.Header(), s.bc)
-		if err != nil {
-			return nil, err
+	if flag {
+		if s.bc.GetVMConfig().StatelessSelfValidation {
+			witness, err = stateless.NewWitness(lastBlock.Header(), s.bc)
+			if err != nil {
+				return nil, err
+			}
 		}
+		statedb.StartPrefetcher("Sequencer", witness)
+		defer statedb.StopPrefetcher()
+	} else {
+		statedb.StopPrefetcher()
 	}
-	statedb.StartPrefetcher("Sequencer", witness)
-	defer statedb.StopPrefetcher()
+
 	delayedMessagesRead := lastBlockHeader.Nonce.Uint64()
 	statedb.StartLogger()
 
@@ -754,6 +761,7 @@ func (s *ExecutionEngine) MessageIndexToBlockNumber(msgIdx arbutil.MessageIndex)
 	return uint64(msgIdx) + s.GetGenesisBlockNumber()
 }
 
+// must hold createBlockMutex
 func (s *ExecutionEngine) createBlockFromNextMessage(msg *arbostypes.MessageWithMetadata, isMsgForPrefetch bool) (*types.Block, *state.StateDB, types.Receipts, error) {
 	currentHeader := s.bc.CurrentBlock()
 	if currentHeader == nil {
@@ -774,20 +782,27 @@ func (s *ExecutionEngine) createBlockFromNextMessage(msg *arbostypes.MessageWith
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	//var witness *stateless.Witness
-	//if s.bc.GetVMConfig().StatelessSelfValidation {
-	//	witness, err = stateless.NewWitness(currentBlock.Header(), s.bc)
-	//	if err != nil {
-	//		return nil, nil, nil, err
-	//	}
-	//}
-	//statedb.StartPrefetcher("TransactionStreamer", witness)
-	//defer statedb.StopPrefetcher()
-	statedb.StopPrefetcher()
 
-	runMode := core.MessageCommitMode
+	flag := true
+	if flag {
+		var witness *stateless.Witness
+		if s.bc.GetVMConfig().StatelessSelfValidation {
+			witness, err = stateless.NewWitness(currentBlock.Header(), s.bc)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+		}
+		statedb.StartPrefetcher("TransactionStreamer", witness)
+		defer statedb.StopPrefetcher()
+	} else {
+		statedb.StopPrefetcher()
+	}
+
+	var runCtx *core.MessageRunContext
 	if isMsgForPrefetch {
-		runMode = core.MessageReplayMode
+		runCtx = core.NewMessagePrefetchContext()
+	} else {
+		runCtx = core.NewMessageCommitContext(s.wasmTargets)
 	}
 	block, receipts, err := arbos.ProduceBlock(
 		msg.Message,
@@ -1086,6 +1101,7 @@ func (s *ExecutionEngine) digestMessageWithBlockMutex(msgIdxToDigest arbutil.Mes
 	}
 	return msgResult, nil
 }
+
 
 func (s *ExecutionEngine) ArbOSVersionForMessageIndex(msgIdx arbutil.MessageIndex) (uint64, error) {
 	block := s.bc.GetBlockByNumber(s.MessageIndexToBlockNumber(msgIdx))

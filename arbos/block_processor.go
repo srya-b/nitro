@@ -197,6 +197,7 @@ func ProduceBlock(
 	)
 }
 
+// A bit more flexible than ProduceBlock for use in the sequencer.
 func ProduceBlockAdvanced(
 	l1Header *arbostypes.L1IncomingMessageHeader,
 	txes types.Transactions,
@@ -206,7 +207,7 @@ func ProduceBlockAdvanced(
 	chainContext core.ChainContext,
 	sequencingHooks *SequencingHooks,
 	isMsgForPrefetch bool,
-	runMode core.MessageRunMode,
+	runCtx *core.MessageRunContext,
 ) (*types.Block, types.Receipts, error) {
 
 	arbState, err := arbosState.OpenSystemArbosState(statedb, nil, true)
@@ -353,9 +354,6 @@ func ProduceBlockAdvanced(
 			gasPool := gethGas
 			blockContext := core.NewEVMBlockContext(header, chainContext, &header.Coinbase)
 			evm := vm.NewEVM(blockContext, statedb, chainConfig, vm.Config{})
-			if statedb.HasLogger() {
-				log.Info("<><><><><> Tx boundary start <><><><>")
-			}
 			receipt, result, err := core.ApplyTransactionWithResultFilter(
 				evm,
 				&gasPool,
@@ -363,14 +361,11 @@ func ProduceBlockAdvanced(
 				header,
 				tx,
 				&header.GasUsed,
-				runMode,
+				runCtx,
 				func(result *core.ExecutionResult) error {
 					return hooks.PostTxFilter(header, statedb, arbState, tx, sender, dataGas, result)
 				},
 			)
-			if statedb.HasLogger() {
-				log.Info("<><><><><><> tx boundary stop <><><><>")
-			}
 			if err != nil {
 				// Ignore this transaction if it's invalid under the state transition function
 				statedb.RevertToSnapshot(snap)
@@ -546,7 +541,6 @@ func ProduceBlockAdvanced(
 
 	return block, receipts, nil
 }
-
 
 // Also sets header.Root
 func FinalizeBlock(header *types.Header, txs types.Transactions, statedb vm.StateDB, chainConfig *params.ChainConfig) {

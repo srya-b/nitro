@@ -292,6 +292,10 @@ func (s *ExecutionEngine) createBlockFromNextMessageCustom(msg *arbostypes.Messa
 	} else {
 		runCtx = core.NewMessageCommitContext(s.wasmTargets)
 	}
+
+    logdir := "/home/user/state-logs"
+    statedb.StartLogger(logdir, currentHeader.Number)
+
 	block, receipts, err := arbos.ProduceBlockCustom(
 		msg.Message,
 		msg.DelayedMessagesRead,

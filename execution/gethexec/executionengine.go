@@ -108,6 +108,8 @@ type ExecutionEngine struct {
 	syncTillBlock uint64
 
 	runningMaintenance atomic.Bool
+	// DEBUG: logging
+	loggerFailStop bool
 }
 
 func NewL1PriceData() *L1PriceData {
@@ -1101,7 +1103,6 @@ func (s *ExecutionEngine) digestMessageWithBlockMutex(msgIdxToDigest arbutil.Mes
 	}
 	return msgResult, nil
 }
-
 
 func (s *ExecutionEngine) ArbOSVersionForMessageIndex(msgIdx arbutil.MessageIndex) (uint64, error) {
 	block := s.bc.GetBlockByNumber(s.MessageIndexToBlockNumber(msgIdx))

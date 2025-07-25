@@ -1,17 +1,16 @@
 package main
 
 import (
-	"reflect" 
 	"math/big"
+	"reflect"
 
-	"github.com/ethereum/go-ethereum/trie"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
-	_"github.com/ethereum/go-ethereum/core/types"
+	_ "github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
-	_"github.com/ethereum/go-ethereum/trie"
+	"github.com/ethereum/go-ethereum/trie"
+	_ "github.com/ethereum/go-ethereum/trie"
 )
-
 
 func CheckPostDataLogsEverything() {
 	blockno := big.NewInt(0)
@@ -42,8 +41,8 @@ func validatePreLog(preObj *state.PreLog) bool {
 		return true
 	}
 
-	//preKeys, _ := ExploreTrie(preObj)
-	//accountsFound := listToSet(preKeys)
+	// preKeys, _ := ExploreTrie(preObj)
+	// accountsFound := listToSet(preKeys)
 
 	// all the accounts that were created (unhashed) from the Journal
 	createdAccounts := state.GetCreatedAccounts(preObj.Journals)
@@ -56,7 +55,7 @@ func validatePreLog(preObj *state.PreLog) bool {
 	deletedKeys := state.GetDeletedKeys(preObj.Journals)
 
 	// the accounts in the trie in objects
-	//accountsInTrie := make(map[common.Hash]bool)
+	// accountsInTrie := make(map[common.Hash]bool)
 	accountsInTrie := hashAddressSet(mapSubtract(mapToSet(preObj.Accounts), createdAccounts))
 	keysInTrie := mapSubtract(mapToSet(preObj.Keys), createdKeys)
 	keysInTrie = mapSubtract(keysInTrie, zeroGets)
@@ -70,37 +69,34 @@ func validatePreLog(preObj *state.PreLog) bool {
 	log.Info("Deleted keys", "map", hashKeySet(deletedKeys))
 	log.Info("Always 0 keys", "map", hashKeySet(zeroGets))
 
-
-	//t := ValidatorTrieFromObj(preObj)
-	//ha := common.HexToHash("0xb4d14ec89c201c23aa60e231e3993b3966b33ff1f55d198ec25980957ab32065")
-	//hk := common.HexToHash("0x0bd839f4461b871f3a9c86a40a5fdd92fd303f2683640e55dfb3105603a46223")
+	// t := ValidatorTrieFromObj(preObj)
+	// ha := common.HexToHash("0xb4d14ec89c201c23aa60e231e3993b3966b33ff1f55d198ec25980957ab32065")
+	// hk := common.HexToHash("0x0bd839f4461b871f3a9c86a40a5fdd92fd303f2683640e55dfb3105603a46223")
 	//res := t.GetStateWithHashKey(ha.Bytes(), hk.Bytes())
 	//log.Info("GetState result", "res", res)
-
 
 	a := common.HexToHash("0xb4d14ec89c201c23aa60e231e3993b3966b33ff1f55d198ec25980957ab32065")
 	k := common.HexToHash("0x299e3e924ceba6fe53dd5651a14c88eb9f6fb9e6c9763369a608e3310fe5709a")
 
 	for key := range preObj.Keys {
 		hk := common.BytesToHash(trie.PublicHashKey(key.Key().Bytes()))
-		//ha := common.BytesToHash(trie.PublicHashKey(key.Addr().Bytes()))
+		// ha := common.BytesToHash(trie.PublicHashKey(key.Addr().Bytes()))
 		if hk.Cmp(k) == 0 {
 			log.Info("Search Address", "hash", a, "addr", key.Addr())
 			log.Info("Search Key", "hash", hk, "key", key.Key())
 		}
 	}
 
-	//log.Info("Find all")
-	//state.PublicFindAll(a, preObj.Journals)
-	//state.PublicFindGetSets(a, k, preObj.Journals)
+	// log.Info("Find all")
+	// state.PublicFindAll(a, preObj.Journals)
+	// state.PublicFindGetSets(a, k, preObj.Journals)
 	//log.Info("Return")
 
-
-	//eq := reflect.DeepEqual(accountsFound, accountsInTrie)
-	//if eq {
+	// eq := reflect.DeepEqual(accountsFound, accountsInTrie)
+	// if eq {
 	//	log.Info("Equal found and in journal")
 	//	return true
-	//} else {
+	// } else {
 	//	log.Error("Differing", "accountsFound", accountsFound, "accountsInTrie", accountsInTrie)
 	//	return false
 	//}
@@ -112,7 +108,7 @@ func validatePostLog(postObj *state.PostLog) bool {
 	postKeys, _ := ExploreTrieKeys(postObj)
 
 	accountsFound := listToSet(postAccounts)
-	//keysFound := listToSet(postKeys)
+	// keysFound := listToSet(postKeys)
 
 	log.Info("Post accounts", "mao", accountsFound)
 	log.Info("Post keys", "map", postKeys)
@@ -126,18 +122,17 @@ func validatePostLog(postObj *state.PostLog) bool {
 	return true
 }
 
-
 // Checks that the accounts reachable by traversing the saved hashes is the same
 // as the set if reading from the journal of this block. It's good validation
 // that the data collected is complete.
 func validatePrePost(preObj *state.PreLog, postObj *state.PostLog) bool {
 
 	// Go through the journal and determine which accounts already existed before this block
-	// and check that the same accounts are found when the trie encoded by the node hashes is 
+	// and check that the same accounts are found when the trie encoded by the node hashes is
 	// traversed.
-	//if ignoreJournal(preObj.Journals) {
+	// if ignoreJournal(preObj.Journals) {
 	if ignorePrePost(preObj, postObj) {
-		//log.Info("An empty journal is valid.")
+		// log.Info("An empty journal is valid.")
 		return true
 	}
 
@@ -180,10 +175,8 @@ func validatePrePost(preObj *state.PreLog, postObj *state.PostLog) bool {
 	if !eq {
 		log.Error("the two maps", "accountsInPre", accountsInPre, "accountsFound", accountsFound)
 		panic("not equal")
-	} 
-	
+	}
+
 	log.Info("We all good")
 	return true
 }
-
-

@@ -1,12 +1,12 @@
 package main
 
 import (
-	"os"
-	_"fmt"
-	_"io/ioutil"
-	_"encoding/json"
+	_ "encoding/json"
+	_ "fmt"
+	_ "io/ioutil"
 	"math/big"
-	_"reflect"
+	"os"
+	_ "reflect"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -21,7 +21,7 @@ func ExploreTrie(obj state.Log) ([]common.Hash, bool) {
 	if !ok {
 		log.Info("Log", "accounts", len(obj.AccountsSeen()), "Anodes", obj.AccountsSeen())
 
-		//panic("Root isn't in nodes")
+		// panic("Root isn't in nodes")
 		return nil, false
 	}
 	root, err := trie.PublicDecodeNode(nil, rootRaw)
@@ -34,14 +34,14 @@ func ExploreTrie(obj state.Log) ([]common.Hash, bool) {
 	return count, true
 }
 
-//func ExploreTrieKeys(obj state.Log) (map[common.Hash][]common.Hash, bool) {
+// func ExploreTrieKeys(obj state.Log) (map[common.Hash][]common.Hash, bool) {
 func ExploreTrieKeys(obj state.Log) ([]common.Hash, bool) {
 	rootRaw, ok := obj.ANodes()[obj.RootHash()]
 	log.Info("Root", "roothash", obj.RootHash())
 	if !ok {
 		log.Info("Log", "accounts", len(obj.AccountsSeen()), "Anodes", obj.AccountsSeen())
 
-		//panic("Root isn't in nodes")
+		// panic("Root isn't in nodes")
 		return nil, false
 	}
 	root, err := trie.PublicDecodeNode(nil, rootRaw)
@@ -52,7 +52,7 @@ func ExploreTrieKeys(obj state.Log) ([]common.Hash, bool) {
 	testMap := MergeMaps(obj.ANodes(), obj.KNodes())
 	var emptyHash common.Hash
 	emptyHash.SetBytes(nil)
-	count := trie.TrieFromNodeCountKeys(root, testMap, []byte{}, emptyHash , false)
+	count := trie.TrieFromNodeCountKeys(root, testMap, []byte{}, emptyHash, false)
 	return count, true
 }
 
@@ -68,8 +68,8 @@ func ValidatorTrieFromObj(obj state.Log) *trie.ValidatorTrie {
 	}
 	allNodes := MergeMaps(obj.ANodes(), obj.KNodes())
 	return &trie.ValidatorTrie{
-			Root: root,
-			Nodes: allNodes,
+		Root:  root,
+		Nodes: allNodes,
 	}
 }
 
@@ -93,9 +93,6 @@ func main() {
 	CheckPostDataLogsEverything()
 	return
 
-	ProcessLogs()
-	return	
-
 	// get all the pre and post data for block 0
 	one := big.NewInt(1)
 	blockNo := big.NewInt(0)
@@ -105,7 +102,7 @@ func main() {
 	noMoreVersions := false
 	prevRoot := types.EmptyCodeHash
 
-	for {	
+	for {
 		for {
 			content, err := readPre(blockNo, version)
 			if err != nil {
@@ -115,7 +112,7 @@ func main() {
 				} else {
 					noMoreVersions = true
 				}
-				break	
+				break
 			}
 			preObj := preFromBytes(content)
 			samplePreData(preObj)
@@ -129,7 +126,6 @@ func main() {
 					log.Info("The hashes in preLog(n) and postLog(n-1) are consistent. YAY!")
 				}
 			}
-	
 
 			content, err = readPost(blockNo, version)
 			if err != nil {
@@ -139,7 +135,7 @@ func main() {
 				} else {
 					noMoreVersions = true
 				}
-				break	
+				break
 			}
 
 			postObj := postFromBytes(content)
@@ -147,7 +143,7 @@ func main() {
 			samplePostData(postObj)
 			prevRoot = postObj.Root
 
-			//state.PrintJournal(preObj.Journals)
+			// state.PrintJournal(preObj.Journals)
 
 			success := validatePrePost(preObj, postObj)
 			if !success {
@@ -157,9 +153,9 @@ func main() {
 			if noMoreVersions {
 				noMoreVersions = false
 			}
-			//accesses := GetAccessOrder(preObj, postObj)
-			//log.Info("Accesses", "l", accesses)
-			//done = true
+			// accesses := GetAccessOrder(preObj, postObj)
+			// log.Info("Accesses", "l", accesses)
+			// done = true
 			//break
 		}
 		if done {
@@ -174,9 +170,8 @@ func main() {
 
 	log.Info("Done processing data.")
 
-
-	//postcount = ExploreTrie(postObj)
-	//log.Info("Post count", "c", count)
+	// postcount = ExploreTrie(postObj)
+	// log.Info("Post count", "c", count)
 
 	// create the full set of preimages
 
@@ -189,7 +184,7 @@ func getPreObj(blockno *big.Int, version int) (*state.PreLog, bool) {
 		return nil, false
 	}
 	preObj := preFromBytes(content)
-	//samplePreData(preObj)
+	// samplePreData(preObj)
 	return preObj, true
 }
 
@@ -200,7 +195,7 @@ func getPostObj(blockno *big.Int, version int) (*state.PostLog, bool) {
 		return nil, false
 	}
 	postObj := postFromBytes(content)
-	//samplePostData(postObj)
+	// samplePostData(postObj)
 	return postObj, true
 }
 
@@ -217,7 +212,6 @@ func getPrePostObjs(blockno *big.Int, version int) (*state.PreLog, *state.PostLo
 	}
 	return preObj, postObj, true
 }
-
 
 func checkPreLogRoot(preObj *state.PreLog, prevRoot common.Hash) bool {
 	// assert that this preLog's root is the same a the last PostLog
@@ -241,19 +235,17 @@ func ProcessLogs() {
 	noMoreVersions := false
 	prevRoot := types.EmptyCodeHash
 
-	for {		// for each block
-		for {	// for each log file in that block
+	for { // for each block
+		for { // for each log file in that block
 			// read preLog and log everything
-			preObj, postObj, exists := getPrePostObjs(blockNo, version)
+			preObj, _, exists := getPrePostObjs(blockNo, version)
 			if !exists {
 				if noMoreVersions {
 					done = true
 				} else {
-					noMoreVersions = true	
-				}	
+					noMoreVersions = true
+				}
 			}
-
-
 
 			// assert that the preLog's root is the same as the last postLog
 			if !checkPreLogRoot(preObj, prevRoot) {
@@ -262,18 +254,15 @@ func ProcessLogs() {
 			validatePreLog(preObj)
 			done = true
 			break
-			//samplePostData(postObj)
+			// samplePostData(postObj)
 
 			// add the preLog accesses
-			preAccesses := GetAccessOrder(preObj, postObj)
-			log.Info("Pre accesses", "l", len(preAccesses))
 
-			// consume upto and including all logs where 
+			// log.Info("Pre accesses", "l", len(preAccesses))
+
+			// consume upto and including all logs where
 			// process the postLogs in the order of the journal with the updated nodes
-							
 
-
-			done = true
 			break
 		}
 		if done {
@@ -288,33 +277,26 @@ func ProcessLogs() {
 
 }
 
-
 /*
 
 Now we actually try to do cache management and the related functions with this data.
 When something is deleted or added to the state trie, this results in paths to other keys also changing.
-In order to do cache management, we need to know which trie nodes became new nodes because a value within them changed, and which nodes are completey new.
+In order to do cache management, we need to know which trie nodes became new nodes because a value within them changed, and which nodes are completely new.
 When traversing the trie:
 
-FullNode: 
-If the old and new tries have the same fullNode with at least one matching child (empty entries count as matching children) then this fullNode is modified with some new hash. 
-If a shortNode is seen where a fullNode used to be, that means the keys in this subtrie that divided on one value, are now combined into a new value 
+FullNode:
+If the old and new tries have the same fullNode with at least one matching child (empty entries count as matching children) then this fullNode is modified with some new hash.
+If a shortNode is seen where a fullNode used to be, that means the keys in this subtrie that divided on one value, are now combined into a new value
 
 */
 
 func GetAccessOrder(preObj *state.PreLog, postObj *state.PostLog) []common.Hash {
 	t := ValidatorTrieFromObj(preObj)
-	//accesses := state.OrderAccesses(preObj.Journals, t)
+	// accesses := state.OrderAccesses(preObj.Journals, t)
 	accesses := state.OrderAccesses(preObj.Journals, preObj.Root, preObj.Accounts, preObj.AccountNodes, preObj.Keys, preObj.KeyNodes, t)
 	return accesses
 }
 
-//func GetAccessOrder(journals [][]state.LogJournalEntry, t *trie.ValidatorTrie) []common.Hash {
+// func GetAccessOrder(journals [][]state.LogJournalEntry, t *trie.ValidatorTrie) []common.Hash {
 //	return state.OrderAccesses(journals, t)
 //}
-
-
-
-
-
-

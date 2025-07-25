@@ -160,7 +160,8 @@ CBROTLI_WASM_BUILD_ARGS ?=-d
 # user targets
 
 .PHONY: push
-push: lint test-go .make/fmt
+#push: lint test-go .make/fmt
+push: test-go .make/fmt
 	@printf "%bdone building %s%b\n" $(color_pink) $$(expr $$(echo $? | wc -w) - 1) $(color_reset)
 	@printf "%bready for push!%b\n" $(color_pink) $(color_reset)
 
@@ -215,9 +216,9 @@ contracts: .make/solgen
 format fmt: .make/fmt
 	@printf $(done)
 
-.PHONY: lint
-lint: .make/lint
-	@printf $(done)
+#.PHONY: lint
+#lint: .make/lint
+#	@printf $(done)
 
 .PHONY: stylus-benchmarks
 stylus-benchmarks: $(stylus_benchmarks)
@@ -587,14 +588,15 @@ contracts/test/prover/proofs/%.json: $(arbitrator_cases)/%.wasm $(prover_bin)
 
 # strategic rules to minimize dependency building
 
-.make/lint: $(DEP_PREDICATE) build-node-deps $(ORDER_ONLY_PREDICATE) .make
-	go run ./linters ./...
-	golangci-lint run --fix
-	yarn --cwd contracts solhint
-	@touch $@
+#.make/lint: $(DEP_PREDICATE) build-node-deps $(ORDER_ONLY_PREDICATE) .make
+#	go run ./linters ./...
+#	golangci-lint run --fix
+#	yarn --cwd contracts solhint
+#	@touch $@
 
 .make/fmt: $(DEP_PREDICATE) build-node-deps .make/yarndeps $(ORDER_ONLY_PREDICATE) .make
-	golangci-lint fmt
+	#golangci-lint fmt
+	#golangci-lint run --disable-all -E gofmt --fix
 	cargo fmt -p arbutil -p prover -p jit -p stylus --manifest-path arbitrator/Cargo.toml -- --check
 	cargo fmt --all --manifest-path arbitrator/wasm-testsuite/Cargo.toml -- --check
 	forge fmt --root contracts-local

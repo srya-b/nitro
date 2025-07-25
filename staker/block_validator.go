@@ -1009,11 +1009,11 @@ func (v *BlockValidator) sendValidations(ctx context.Context) (*arbutil.MessageI
 			// validationStatus might be removed from under us
 			// trigger validation progress when done
 			for _, run := range runs {
-			    run.Await(validationCtx)
-				//if err == nil && runEnd != validationStatus.DoneEntry.End {
+				run.Await(validationCtx)
+				// if err == nil && runEnd != validationStatus.DoneEntry.End {
 				//	err = fmt.Errorf("validation failed: got %v", runEnd)
 				//}
-				//if err != nil {
+				// if err != nil {
 				//	validatorFailedValidationsCounter.Inc(1)
 				//	markSuccess = false
 				//	log.Error("error while validating", "err", err, "start", validationStatus.DoneEntry.Start, "end", validationStatus.DoneEntry.End)

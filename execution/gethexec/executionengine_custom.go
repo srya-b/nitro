@@ -3,23 +3,23 @@ package gethexec
 import "C"
 
 import (
-    "fmt"
 	"errors"
+	"fmt"
 	"time"
 
-    "github.com/ethereum/go-ethereum/common"
-    "github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
-    "github.com/ethereum/go-ethereum/core/stateless"
+	"github.com/ethereum/go-ethereum/core/stateless"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
-    "github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/params"
 
-    "github.com/offchainlabs/nitro/arbos"
+	"github.com/offchainlabs/nitro/arbos"
 	"github.com/offchainlabs/nitro/arbos/arbosState"
 	"github.com/offchainlabs/nitro/arbos/arbostypes"
 	"github.com/offchainlabs/nitro/arbutil"
-	_"github.com/offchainlabs/nitro/cmd/chaininfo"
+	_ "github.com/offchainlabs/nitro/cmd/chaininfo"
 	"github.com/offchainlabs/nitro/execution"
 	"github.com/offchainlabs/nitro/util/sharedmetrics"
 )
@@ -42,7 +42,7 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbos
 
 	flag := false
 	var witness *stateless.Witness
-	if flag {
+	if flag || s.loggerFailStop {
 		if s.bc.GetVMConfig().StatelessSelfValidation {
 			witness, err = stateless.NewWitness(lastBlock.Header(), s.bc)
 			if err != nil {
@@ -54,14 +54,18 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbos
 	} else {
 		statedb.StopPrefetcher()
 	}
-    
+
 	delayedMessagesRead := lastBlockHeader.Nonce.Uint64()
-    logdir := "/home/user/state-logs"
-    success := statedb.StartLogger(logdir, lastBlockHeader.Number)
-    if !success {
-        log.Error("sequenceTransactions failed to start Logger QUIT")
-        //statedb.logState = false
-        statedb.StopLogger()
+
+    if !s.loggerFailStop {
+	    logdir := "/home/user/state-logs"
+	    success := statedb.StartLogger(logdir, lastBlockHeader.Number)
+	    if !success {
+	    	log.Error("sequenceTransactions failed to start Logger QUIT")
+            s.loggerFailStop = true
+	    	//statedb.logState = false
+	    	statedb.StopLogger()
+	    }
     }
 
 	startTime := time.Now()
@@ -255,7 +259,7 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbos
 
 // must hold createBlockMutex
 func (s *ExecutionEngine) createBlockFromNextMessageCustom(msg *arbostypes.MessageWithMetadata, isMsgForPrefetch bool) (*types.Block, *state.StateDB, types.Receipts, error) {
-    log.Info("createBlockFromNextMessageCustom")
+	log.Info("createBlockFromNextMessageCustom")
 	currentHeader := s.bc.CurrentBlock()
 	if currentHeader == nil {
 		return nil, nil, nil, errors.New("failed to get current block header")
@@ -277,7 +281,7 @@ func (s *ExecutionEngine) createBlockFromNextMessageCustom(msg *arbostypes.Messa
 	}
 
 	flag := false
-	if flag {
+	if flag || s.loggerFailStop {
 		var witness *stateless.Witness
 		if s.bc.GetVMConfig().StatelessSelfValidation {
 			witness, err = stateless.NewWitness(currentBlock.Header(), s.bc)
@@ -298,12 +302,15 @@ func (s *ExecutionEngine) createBlockFromNextMessageCustom(msg *arbostypes.Messa
 		runCtx = core.NewMessageCommitContext(s.wasmTargets)
 	}
 
-    logdir := "/home/user/state-logs"
-    success := statedb.StartLogger(logdir, currentHeader.Number)
-    if !success {
-        log.Error("createBlock failed to start Logger QUIT")
-        //statedb.logState = false
-        statedb.StopLogger()
+    if !s.loggerFailStop {
+	    logdir := "/home/user/state-logs"
+	    success := statedb.StartLogger(logdir, currentHeader.Number)
+	    if !success {
+	    	log.Error("createBlock failed to start Logger QUIT")
+            s.loggerFailStop = true
+	    	//statedb.logState = false
+	    	statedb.StopLogger()
+	    }
     }
 
 	block, receipts, err := arbos.ProduceBlockCustom(
@@ -351,7 +358,7 @@ func (s *ExecutionEngine) createBlockFromNextMessageCustom(msg *arbostypes.Messa
 //	    	}
 //	    }
 //	    statedb.StartPrefetcher("TransactionStreamer", witness)
-//	    defer statedb.StopPrefetcher()	
+//	    defer statedb.StopPrefetcher()
 //    } else {
 //	    statedb.StopPrefetcher()
 //    }
@@ -360,7 +367,7 @@ func (s *ExecutionEngine) createBlockFromNextMessageCustom(msg *arbostypes.Messa
 //	if isMsgForPrefetch {
 //		runMode = core.MessageReplayMode
 //	}
-//	
+//
 //	logdir := "/home/user/state-logs"
 //	statedb.StartLogger(logdir, currentHeader.Number)
 //	block, receipts, err := arbos.ProduceBlockCustom(
@@ -387,7 +394,7 @@ func (s *ExecutionEngine) createBlockFromNextMessageCustom(msg *arbostypes.Messa
 //}
 
 func (s *ExecutionEngine) digestMessageWithBlockMutexCustom(msgIdxToDigest arbutil.MessageIndex, msg *arbostypes.MessageWithMetadata, msgForPrefetch *arbostypes.MessageWithMetadata) (*execution.MessageResult, error) {
-    log.Info("digestMessageWithBlockMutexCustom")
+	log.Info("digestMessageWithBlockMutexCustom")
 	currentHeader, err := s.getCurrentHeader()
 	if err != nil {
 		return nil, err
@@ -473,7 +480,6 @@ func (s *ExecutionEngine) digestMessageWithBlockMutexCustom(msgIdxToDigest arbut
 	}
 	return msgResult, nil
 }
-
 
 //func (s *ExecutionEngine) digestMessageWithBlockMutexCustom(msgIdxToDigest arbutil.MessageIndex, msg *arbostypes.MessageWithMetadata, msgForPrefetch *arbostypes.MessageWithMetadata) (*execution.MessageResult, error) {
 //	log.Info("digestMessageWithBlockMutexCustom")
@@ -563,4 +569,3 @@ func (s *ExecutionEngine) digestMessageWithBlockMutexCustom(msgIdxToDigest arbut
 //	}
 //	return msgResult, nil
 //}
-

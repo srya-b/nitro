@@ -403,4 +403,3 @@ func ProduceBlockAdvancedCustom(
 	log.Info("Return block")
 	return block, receipts, nil
 }
-

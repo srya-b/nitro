@@ -1,14 +1,14 @@
 package main
 
 import (
-	"os"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"encoding/json"
-    "math/big"
+	"math/big"
+	"os"
 
 	"github.com/ethereum/go-ethereum/core/state"
-    "github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 var logDir string = "/home/sbakshi/arb1/arb-devnode/state-logs"

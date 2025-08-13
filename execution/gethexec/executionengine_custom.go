@@ -58,7 +58,7 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbos
 	delayedMessagesRead := lastBlockHeader.Nonce.Uint64()
 
     if !s.loggerFailStop {
-	    logdir := "/home/user/state-logs"
+	    logdir := "/home/admin/statedb-data"
 	    success := statedb.StartLogger(logdir, lastBlockHeader.Number)
 	    if !success {
 	    	log.Error("sequenceTransactions failed to start Logger QUIT")
@@ -303,7 +303,7 @@ func (s *ExecutionEngine) createBlockFromNextMessageCustom(msg *arbostypes.Messa
 	}
 
     if !s.loggerFailStop {
-	    logdir := "/home/user/state-logs"
+	    logdir := "/home/admin/statedb-data"
 	    success := statedb.StartLogger(logdir, currentHeader.Number)
 	    if !success {
 	    	log.Error("createBlock failed to start Logger QUIT")

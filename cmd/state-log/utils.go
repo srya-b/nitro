@@ -29,6 +29,16 @@ func listToMap[K comparable](l []K) map[K]bool {
 	return out
 }
 
+func setToList[K comparable](m map[K]bool) []K {
+	out := make([]L, len(m))
+	i := 0
+	for k := range m {
+		out[i] = k
+		i++
+	}
+	return out
+}
+
 func mapToSet[K comparable, V any](m map[K]V) map[K]bool {
 	out := make(map[K]bool)
 	for k := range m {

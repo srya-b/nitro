@@ -10,6 +10,10 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 )
 
+type Address = common.Address
+type KK = state.KeyKey
+type HK = state.HashedKeyKey
+
 func MergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
 	testMap := make(map[K]V)
 	for hn, raw := range map1 {
@@ -30,7 +34,7 @@ func listToMap[K comparable](l []K) map[K]bool {
 }
 
 func setToList[K comparable](m map[K]bool) []K {
-	out := make([]L, len(m))
+	out := make([]K, len(m))
 	i := 0
 	for k := range m {
 		out[i] = k
@@ -76,9 +80,80 @@ func hashAddressSet(m map[common.Address]bool) map[common.Hash]bool {
 	out := make(map[common.Hash]bool)
 	for addr := range m {
 		out[common.BytesToHash(trie.PublicHashKey(addr.Bytes()))] = m[addr]
-		log.Info("Preimage", "addr", addr, "hash", common.BytesToHash(trie.PublicHashKey(addr.Bytes())))
+		//log.Info("Preimage", "addr", addr, "hash", common.BytesToHash(trie.PublicHashKey(addr.Bytes())))
 	}
 	return out
+}
+
+//func hashKeySet(m state.Set[KK]) (state.Set[HK], map[HK]KK) {
+func hashKeySet(m map[KK]bool) (map[HK]bool, map[HK]KK) {
+	hashes := make(map[HK]bool)
+	preimages := make(map[HK]KK)
+
+	for kk := range m {
+		ha := common.BytesToHash(trie.PublicHashKey(kk.Addr().Bytes()))
+		hk := common.BytesToHash(trie.PublicHashKey(kk.Key().Bytes()))
+		hkk := state.NewHashedKeyKey(ha, hk)
+		hashes[hkk] = true
+		preimages[hkk] = kk
+	}
+	return hashes, preimages
+}
+
+func findAddressPreimage[V any](target common.Hash, m map[common.Address]V) common.Address {
+	for addr := range m {
+		ha := common.BytesToHash(trie.PublicHashKey(addr.Bytes()))
+		if target.Cmp(ha) == 0 {
+			return addr	
+		}
+	}
+	return common.Address{}
+}
+
+func hkkPreimages[V1 any, V2 any](preimages map[KK]V1, hashes map[HK]V2) (map[common.Hash]common.Address, map[common.Address]common.Hash) {
+	res := make(map[common.Hash]common.Address)
+	resH := make(map[common.Address]common.Hash)
+	for preimage := range preimages {
+		h := common.BytesToHash(trie.PublicHashKey(preimage.Addr().Bytes()))
+		hk := state.NewHashedKeyKey(h, preimage.Key())
+		_, ok := hashes[hk]
+		if ok {
+			res[h] = preimage.Addr()
+			resH[preimage.Addr()] = h
+		}
+	}
+	return res, resH
+}
+
+func keysForAddr(target common.Address, keys map[KK]bool) map[common.Hash]bool {
+	res := make(map[common.Hash]bool)
+	for kk := range keys {
+		if kk.Addr().Cmp(target) == 0 {
+			res[kk.Key()] = true
+		}
+	}
+	return res
+}
+
+//func countHKKInSet(target common.Hash, m map[state.HashedKeyKey]bool) int {
+func countHKKInSet(target common.Hash, m map[state.HashedKeyKey]bool) []state.HashedKeyKey {
+	c := []state.HashedKeyKey{}
+	for k := range m {
+		if target.Cmp(k.HashAddr()) == 0 {
+			c = append(c, k)
+		}
+	}
+	return c
+}
+
+func keysForHashAddr(target common.Hash, hashKeys map[HK]bool) map[common.Hash]bool {
+	res := make(map[common.Hash]bool)
+	for hk := range hashKeys {
+		if hk.HashAddr().Cmp(target) == 0 {
+			res[hk.Key()] = true
+		}
+	}
+	return res
 }
 
 type HashedKeyKey struct {
@@ -90,17 +165,6 @@ func (k HashedKeyKey) Format(s fmt.State, c rune) {
 	k.addr.Format(s, c)
 	s.Write([]byte(", "))
 	k.key.Format(s, c)
-}
-
-func hashKeySet(m map[state.KeyKey]bool) map[HashedKeyKey]bool {
-	out := make(map[HashedKeyKey]bool)
-	for key := range m {
-		ha := common.BytesToHash(trie.PublicHashKey(key.Addr().Bytes()))
-		hk := common.BytesToHash(trie.PublicHashKey(key.Key().Bytes()))
-		// out[common.BytesToHash(trie.PublicHashKey(key.Key().Bytes()))] = m[key]
-		out[HashedKeyKey{ha, hk}] = m[key]
-	}
-	return out
 }
 
 func IsIdenticalPre(obj1 *state.PreLog, obj2 *state.PreLog) bool {

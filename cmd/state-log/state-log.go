@@ -4,7 +4,7 @@ import (
 	_ "encoding/json"
 	_ "fmt"
 	_ "io/ioutil"
-	"math/big"
+	_"math/big"
 	"os"
 	_ "reflect"
 
@@ -35,11 +35,11 @@ func ExploreTrie(obj state.Log) ([]common.Hash, bool) {
 }
 
 // func ExploreTrieKeys(obj state.Log) (map[common.Hash][]common.Hash, bool) {
-func ExploreTrieKeys(obj state.Log) ([]common.Hash, bool) {
+func ExploreTrieKeys(obj state.Log) (map[common.Hash][]common.Hash, bool) {
 	rootRaw, ok := obj.ANodes()[obj.RootHash()]
 	log.Info("Root", "roothash", obj.RootHash())
 	if !ok {
-		log.Info("Log", "accounts", len(obj.AccountsSeen()), "Anodes", obj.AccountsSeen())
+		log.Debug("Log", "accounts", len(obj.AccountsSeen()), "Anodes", obj.AccountsSeen())
 
 		// panic("Root isn't in nodes")
 		return nil, false
@@ -87,15 +87,18 @@ func ExploreTarget(target common.Address, preObj *state.PreLog, postObj *state.P
 	return false
 }
 
-func main() {
-	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
+var logDir string = "/home/admin/statedb-data"
 
-	CheckPostDataLogsEverything()
+func main() {
+	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelDebug, true)))
+
+	CheckPostDataLogsEverything(logDir)
 	return
 
 	// get all the pre and post data for block 0
-	one := big.NewInt(1)
-	blockNo := big.NewInt(0)
+	//one := big.NewInt(1)
+	//blockNo := big.NewInt(0)
+	blockNo := 0
 	version := 1
 
 	done := false
@@ -162,7 +165,8 @@ func main() {
 			break
 		}
 		if noMoreVersions {
-			blockNo.Add(blockNo, one)
+			//blockNo.Add(blockNo, one)
+			blockNo++
 			version = 1
 			log.Info("Next block", "b", blockNo)
 		}
@@ -175,42 +179,6 @@ func main() {
 
 	// create the full set of preimages
 
-}
-
-func getPreObj(blockno *big.Int, version int) (*state.PreLog, bool) {
-	content, err := readPre(blockno, version)
-	if err != nil {
-		log.Error("No pre file", "e", err, "version", version)
-		return nil, false
-	}
-	preObj := preFromBytes(content)
-	// samplePreData(preObj)
-	return preObj, true
-}
-
-func getPostObj(blockno *big.Int, version int) (*state.PostLog, bool) {
-	content, err := readPost(blockno, version)
-	if err != nil {
-		log.Error("No post file", "err", err, "version", version)
-		return nil, false
-	}
-	postObj := postFromBytes(content)
-	// samplePostData(postObj)
-	return postObj, true
-}
-
-func getPrePostObjs(blockno *big.Int, version int) (*state.PreLog, *state.PostLog, bool) {
-	preObj, exists := getPreObj(blockno, version)
-	if !exists {
-		return nil, nil, false
-	}
-
-	postObj, exists := getPostObj(blockno, version)
-	if !exists {
-		log.Error("Prelog exists and postLog doesn't", "blockno", blockno, "version", version)
-		panic("Missing postLog")
-	}
-	return preObj, postObj, true
 }
 
 func checkPreLogRoot(preObj *state.PreLog, prevRoot common.Hash) bool {
@@ -227,8 +195,9 @@ func checkPreLogRoot(preObj *state.PreLog, prevRoot common.Hash) bool {
 }
 
 func ProcessLogs() {
-	one := big.NewInt(1)
-	blockNo := big.NewInt(0)
+	//one := big.NewInt(1)
+	//blockNo := big.NewInt(0)
+	blockNo := 0
 	version := 1
 
 	done := false
@@ -269,7 +238,8 @@ func ProcessLogs() {
 			break
 		}
 		if noMoreVersions {
-			blockNo.Add(blockNo, one)
+			//blockNo.Add(blockNo, one)
+			blockNo++
 			version = 1
 			log.Info("Next block", "b", blockNo)
 		}

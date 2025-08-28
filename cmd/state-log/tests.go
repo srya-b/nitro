@@ -16,22 +16,63 @@ func CheckPostDataLogsEverything(dir string) {
 	logFiles := getLogFilesSorted(dir)
 	log.Info("Number of logs", "n", len(logFiles))
 
-	//blockno := big.NewInt(0)
 
-	preObj, exists := getPreObj(logFiles[0][0].Blockno, 1)
-	if !exists {
-		log.Error("FIrst prelog should exists")
-		panic("Read preloog error")
+	//for _, obj := range logFiles[0] {
+	for j := 0; j < len(logFiles) ; j++ {
+		if j > 100 {
+			break
+		}
+		for i := 0; i < len(logFiles[j]) - 1; i += 2 {
+
+			var accounts map[common.Address]bool
+			var deletes map[common.Address]bool
+			var accountsFound map[common.Hash]bool
+			var success bool
+			pre := logFiles[j][i]
+			post := logFiles[j][i+1]
+			if pre.Type == PRE && post.Type == POST {
+				preObj, exists := getPreObj(pre.Blockno, pre.Count)
+				if !exists {
+					log.Error("FIrst prelog should exists")
+					break
+				}
+				postObj, exists := getPostObj(post.Blockno, post.Count)
+				if !exists {
+					log.Error("Post obj should never not exist, only preobj shouldn't exist", "block", post.Blockno, "count", post.Count)
+					panic("Read postlog error")
+				}
+
+				if ignoreJournal(preObj.Journals) {
+					log.Info("An empty journal is valid.")
+					//return true, nil, nil, nil
+					continue
+				}
+				
+				_, ok := ExploreTrie(preObj)
+
+				if !ok {
+					_, exists := postObj.AccountNodes[preObj.Root]
+					if !exists {
+						panic("Root isn't in postlog either")
+					} else {
+						log.Debug("Dont with this block preLog is empty")
+					}
+					continue
+				}
+
+				success, accounts, deletes, accountsFound = validatePreLog(preObj)
+				if !success {
+					break
+				}
+				
+				validatePostLog(postObj, preObj, accounts, deletes, accountsFound)
+			}  else {
+				panic(fmt.Sprintf("weird logfiles: %v", logFiles[0]))
+			}
+			//else if obj.Type == POST {
+			//}
+		}
 	}
-
-	_, exists = getPostObj(logFiles[0][0].Blockno, 1)
-	if !exists {
-		log.Error("Last post log version 2 should be there")
-		panic("Read post log error")
-	}
-
-	validatePreLog(preObj)
-	//validatePostLog(postObj)
 
 	//ExploreTrieKeys(preObj)
 }
@@ -53,12 +94,12 @@ func checkCreatesDeletes(preObj *state.PreLog) (state.Set, state.Set, state.Set)
 	return mapSubtract(createdAccounts, emptyDeletes), MergeMaps(deletedAccounts, emptyDeletes), emptyDeletes
 }
 
-func validatePreLog(preObj *state.PreLog) bool {
+func validatePreLog(preObj *state.PreLog) (bool, map[common.Address]bool, map[common.Address]bool, map[common.Hash]bool) {
 	// check that the trie finds all the accounts in the trie
 	// get all accounts found by the trie (hashed keys)
 	if ignoreJournal(preObj.Journals) {
 		log.Info("An empty journal is valid.")
-		return true
+		return true, nil, nil, nil
 	}
 
 	preAccounts, _ := ExploreTrie(preObj)
@@ -69,7 +110,7 @@ func validatePreLog(preObj *state.PreLog) bool {
 	// future, all other created and deleted will not be returned here
 	// some created accounts may be deleted because of being empty
 	// and that won't be captured by reverts or self destructs
-	createdAccounts, _, emptyDeletes := checkCreatesDeletes(preObj)
+	createdAccounts, allDeletes, emptyDeletes := checkCreatesDeletes(preObj)
 	hCreatedAccounts := hashAddressSet(createdAccounts)
 	_ = hCreatedAccounts
 	hEmptyDeletes := hashAddressSet(emptyDeletes)
@@ -84,36 +125,13 @@ func validatePreLog(preObj *state.PreLog) bool {
 	existingAccounts := mapSubtract(mapSubtract(mapToSet(preObj.Accounts), createdAccounts), emptyDeletes)
 	hExistingAccounts := hashAddressSet(existingAccounts)
 
-	// t := ValidatorTrieFromObj(preObj)
-	// ha := common.HexToHash("0xb4d14ec89c201c23aa60e231e3993b3966b33ff1f55d198ec25980957ab32065")
-	// hk := common.HexToHash("0x0bd839f4461b871f3a9c86a40a5fdd92fd303f2683640e55dfb3105603a46223")
-	//res := t.GetStateWithHashKey(ha.Bytes(), hk.Bytes())
-	//log.Info("GetState result", "res", res)
-
-	//a := common.HexToHash("0xb4d14ec89c201c23aa60e231e3993b3966b33ff1f55d198ec25980957ab32065")
-	//k := common.HexToHash("0x299e3e924ceba6fe53dd5651a14c88eb9f6fb9e6c9763369a608e3310fe5709a")
-
-	//for key := range preObj.Keys {
-	//	hk := common.BytesToHash(trie.PublicHashKey(key.Key().Bytes()))
-	//	// ha := common.BytesToHash(trie.PublicHashKey(key.Addr().Bytes()))
-	//	if hk.Cmp(k) == 0 {
-	//		log.Info("Search Address", "hash", a, "addr", key.Addr())
-	//		log.Info("Search Key", "hash", hk, "key", key.Key())
-	//	}
-	//}
-
-	// log.Info("Find all")
-	// state.PublicFindAll(a, preObj.Journals)
-	// state.PublicFindGetSets(a, k, preObj.Journals)
-	//log.Info("Return")
-
 	eq := reflect.DeepEqual(hAccountsReached, hExistingAccounts)
 	if eq {
 		log.Info("Equal found and in journal")
 	} else {
 		//log.Error("Differing", "hAccountsReached", hAccountsReached, "hExistingAccounts", hExistingAccounts)
-		log.Error("Found - in trie", "m", mapSubtract(hAccountsReached, hExistingAccounts))
-		log.Error("in trie - Found", "m", mapSubtract(hExistingAccounts, hAccountsReached))
+		log.Error("Found - in trie", "m", len(mapSubtract(hAccountsReached, hExistingAccounts)))
+		log.Error("in trie - Found", "m", len(mapSubtract(hExistingAccounts, hAccountsReached)))
 	}
 
 	hKeysInObj, hKeysInObjPreimages := hashKeySet(mapToSet(preObj.Keys))
@@ -171,6 +189,9 @@ func validatePreLog(preObj *state.PreLog) bool {
 		diffNoPreimage := make(map[common.Hash]bool)
 		_ = diffNoPreimage
 		if len(intrie_found) > 0 && len(found_intrie) == 0 {
+			// this is the onyl thing we care about because this means there are journals accesses that
+			// the data doesn't account for 
+
 			// get the preimages and list which ones aren't in the other
 			for ha := range intrie_found {
 				a, ok := preimageMap[ha.HashAddr()]
@@ -179,7 +200,12 @@ func validatePreLog(preObj *state.PreLog) bool {
 				}
 			}
 			log.Debug("In journal but not in found", "addrs", different)
+			panic("")
 		} 
+	}
+
+	return true, createdAccounts, allDeletes, hAccountsReached
+}
 
 ///// The code below is for diagnosing the extra keys that are found in the trie, but 
 ///// aren't in the journal. We figured out that the extra keys present is a case of a
@@ -248,35 +274,61 @@ func validatePreLog(preObj *state.PreLog) bool {
 		//	panic(fmt.Sprintf("Both have exclusive elements"))
 		//}
 /////
-	}
 
+func validatePostLogAccounts(postObj *state.PostLog, preObj *state.PreLog, createdAccounts map[common.Address]bool, preDeleted map[common.Address]bool, preFound map[common.Hash]bool) bool {
+	postAccounts, _ := ExploreTrie(postObj)
+	preAccounts, _ := ExploreTrie(preObj)
+	hPreAccountsReached := listToSet(preAccounts)
+	hPreCreatedAccounts := hashAddressSet(createdAccounts)
+	hPreDeletedAccounts := hashAddressSet(preDeleted)
+	hAccountsReached := listToSet(postAccounts)
+	//postKeys, _ := ExploreTrieKeys(postObj)
+
+	preFinalAccounts := mapSubtract(mapAdd(mapToSet(preObj.Accounts), createdAccounts), preDeleted)
+	//preFinalAccounts := mapAdd(mapToSet(preObj.Accounts), createdAccounts)
+	//preFinalAccounts := mapToSet(preObj.Accounts)
+	hPreFinalAccounts := hashAddressSet(preFinalAccounts)
+	_ = hPreFinalAccounts
+	hExpectedTrieAccounts := mapSubtract(mapAdd(hPreAccountsReached, hPreCreatedAccounts), hPreDeletedAccounts)
+
+	postFound_preTrie := mapSubtract(hAccountsReached, hExpectedTrieAccounts)
+	preTrie_postFound := mapSubtract(hExpectedTrieAccounts, hAccountsReached)
+
+
+	// compare tries
+	log.Debug("post found", "m", len(hAccountsReached))
+	log.Debug("from pre trie", "m", len(hExpectedTrieAccounts))
+	log.Debug("post found - from pre trie", "m", len(postFound_preTrie))
+	log.Debug("from pre trie - post found", "m", len(preTrie_postFound))
+
+	// compare post trie to inferred from journal
+	postFound_preJournal := mapSubtract(hAccountsReached, hPreFinalAccounts)
+	preJournal_postFound := mapSubtract(hPreFinalAccounts, hAccountsReached)
+	log.Debug("from pre journal", "m", len(hPreFinalAccounts))
+	log.Debug("post found - pre journal", "m", len(postFound_preJournal))
+	log.Debug("pre journal - post found", "m", len(preJournal_postFound))
+	if len(postFound_preJournal) != 0 {
+		panic("postFound_preJourna")
+	} 
+	if len(preJournal_postFound) != 0 {
+		panic("preJournal_postFound")
+	}
 	return true
 }
 
-func arbMapElement[K comparable, V any](m map[K]V) (K, V) {
-	var zeroK K
-	var zeroV V
-	for k, v := range m {
-		return k, v
-	}
-	return zeroK, zeroV
-}
 
-func validatePostLog(postObj *state.PostLog) bool {
-	postAccounts, _ := ExploreTrie(postObj)
-	postKeys, _ := ExploreTrieKeys(postObj)
-
-	accountsFound := listToSet(postAccounts)
+func validatePostLog(postObj *state.PostLog, preObj *state.PreLog, createdAccounts map[common.Address]bool, preDeleted map[common.Address]bool, preFound map[common.Hash]bool) bool {
+	validatePostLogAccounts(postObj, preObj, createdAccounts, preDeleted, preFound)
+	//accountsFound := listToSet(postAccounts)
 	// keysFound := listToSet(postKeys)
 
-	log.Info("Post accounts", "mao", accountsFound)
-	log.Info("Post keys", "map", postKeys)
+	//log.Info("Post keys", "map", postKeys)
 
-	t := ValidatorTrieFromObj(postObj)
-	ha := common.HexToHash("0xb4d14ec89c201c23aa60e231e3993b3966b33ff1f55d198ec25980957ab32065")
-	hk := common.HexToHash("0x0bd839f4461b871f3a9c86a40a5fdd92fd303f2683640e55dfb3105603a46223")
-	res := t.GetStateWithHashKey(ha.Bytes(), hk.Bytes())
-	log.Info("GetState result", "res", res)
+	//t := ValidatorTrieFromObj(postObj)
+	//ha := common.HexToHash("0xb4d14ec89c201c23aa60e231e3993b3966b33ff1f55d198ec25980957ab32065")
+	//hk := common.HexToHash("0x0bd839f4461b871f3a9c86a40a5fdd92fd303f2683640e55dfb3105603a46223")
+	//res := t.GetStateWithHashKey(ha.Bytes(), hk.Bytes())
+	//log.Info("GetState result", "res", res)
 
 	return true
 }

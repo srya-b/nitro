@@ -44,27 +44,32 @@ func (a ByBlock) Less(i, j int) bool { return a[i].Blockno < a[j].Blockno }
 func (a ByTotalOrder) Len() int		 		{ return len(a) }
 func (a ByTotalOrder) Swap(i, j int)		{ a[i], a[j] = a[j], a[i] }
 func (a ByTotalOrder) Less(i, j int) bool {
-	if a[i].Type == PRE && a[j].Type == PRE {
-		return a[i].Count < a[j].Count
-	} else if a[i].Type == PRE && a[j].Type == POST {
-		// if they have the same count then PRE is earlier than POST
-		if a[i].Count == a[j].Count {
-			return true
-		} else {
-			return a[i].Count < a[j].Count
-		}
-	} else if a[i].Type == POST && a[j].Type == PRE {
-		if a[i].Count == a[j].Count {
-			return false
-		} else {
-			return a[i].Count < a[j].Count
-		}
-	} else if a[i].Type == POST && a[j].Type == POST {
-		return a[i].Count < a[j].Count
-	} else {
-		panic(fmt.Sprintf("unknown type combo: %v, %v", a[i], a[j]))
-	}
+	return a[i].Count < a[j].Count
 }
+
+
+//func (a ByTotalOrder) Less(i, j int) bool {
+//	if a[i].Type == PRE && a[j].Type == PRE {
+//		return a[i].Count < a[j].Count
+//	} else if a[i].Type == PRE && a[j].Type == POST {
+//		// if they have the same count then PRE is earlier than POST
+//		if a[i].Count == a[j].Count {
+//			return true
+//		} else {
+//			return a[i].Count < a[j].Count
+//		}
+//	} else if a[i].Type == POST && a[j].Type == PRE {
+//		if a[i].Count == a[j].Count {
+//			return false
+//		} else {
+//			return a[i].Count < a[j].Count
+//		}
+//	} else if a[i].Type == POST && a[j].Type == POST {
+//		return a[i].Count < a[j].Count
+//	} else {
+//		panic(fmt.Sprintf("unknown type combo: %v, %v", a[i], a[j]))
+//	}
+//}
 
 func getLogFilesSorted(dir string) [][]LogFile {
 	var logFiles []LogFile

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	_"fmt"
 	"reflect"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -14,6 +14,8 @@ type Address = common.Address
 type KK = state.KeyKey
 type HK = state.HashedKeyKey
 
+
+// Map and Set operations
 func MergeMaps[K comparable, V any](map1 map[K]V, map2 map[K]V) map[K]V {
 	testMap := make(map[K]V)
 	for hn, raw := range map1 {
@@ -59,6 +61,17 @@ func listToSet[K comparable](l []K) map[K]bool {
 	return out
 }
 
+func mapAdd[K comparable, V any](m map[K]V, add map[K]V) map[K]V {
+	out := make(map[K]V)
+	for k := range m {
+		out[k] = m[k]
+	}
+	for k := range add {
+		out[k] = add[k]
+	}
+	return out
+}
+
 func mapSubtract[K comparable, V comparable](m map[K]V, subtract map[K]V) map[K]V {
 	out := make(map[K]V)
 	for k := range m {
@@ -76,16 +89,39 @@ func mapSubtract[K comparable, V comparable](m map[K]V, subtract map[K]V) map[K]
 	return out
 }
 
+func arbMapElement[K comparable, V any](m map[K]V) (K, V) {
+	var zeroK K
+	var zeroV V
+	for k, v := range m {
+		return k, v
+	}
+	return zeroK, zeroV
+}
+
+
+// Hashing addresses and keys utils
+
 func hashAddressSet(m map[common.Address]bool) map[common.Hash]bool {
 	out := make(map[common.Hash]bool)
 	for addr := range m {
 		out[common.BytesToHash(trie.PublicHashKey(addr.Bytes()))] = m[addr]
-		//log.Info("Preimage", "addr", addr, "hash", common.BytesToHash(trie.PublicHashKey(addr.Bytes())))
 	}
 	return out
 }
 
-//func hashKeySet(m state.Set[KK]) (state.Set[HK], map[HK]KK) {
+// find the preimage of a hash from a set of addresses (might not exist)
+func findAddressPreimage[V any](target common.Hash, m map[common.Address]V) common.Address {
+	for addr := range m {
+		ha := common.BytesToHash(trie.PublicHashKey(addr.Bytes()))
+		if target.Cmp(ha) == 0 {
+			return addr	
+		}
+	}
+	return common.Address{}
+}
+
+// hash a set of KeyKeys into a set of HashedKeyKeys
+// and returns a set of preimages from HKK -> KK
 func hashKeySet(m map[KK]bool) (map[HK]bool, map[HK]KK) {
 	hashes := make(map[HK]bool)
 	preimages := make(map[HK]KK)
@@ -100,16 +136,8 @@ func hashKeySet(m map[KK]bool) (map[HK]bool, map[HK]KK) {
 	return hashes, preimages
 }
 
-func findAddressPreimage[V any](target common.Hash, m map[common.Address]V) common.Address {
-	for addr := range m {
-		ha := common.BytesToHash(trie.PublicHashKey(addr.Bytes()))
-		if target.Cmp(ha) == 0 {
-			return addr	
-		}
-	}
-	return common.Address{}
-}
-
+// create two maps given a set of preimges (KeyKeys) and hashes (HashedKeyKeys)
+// first map is hash -> preimage second is preimage -> hash
 func hkkPreimages[V1 any, V2 any](preimages map[KK]V1, hashes map[HK]V2) (map[common.Hash]common.Address, map[common.Address]common.Hash) {
 	res := make(map[common.Hash]common.Address)
 	resH := make(map[common.Address]common.Hash)
@@ -125,6 +153,9 @@ func hkkPreimages[V1 any, V2 any](preimages map[KK]V1, hashes map[HK]V2) (map[co
 	return res, resH
 }
 
+// Searching sets for addresses and keys
+
+// return the set of keys for a specific address in a set of KeyKeys
 func keysForAddr(target common.Address, keys map[KK]bool) map[common.Hash]bool {
 	res := make(map[common.Hash]bool)
 	for kk := range keys {
@@ -135,7 +166,7 @@ func keysForAddr(target common.Address, keys map[KK]bool) map[common.Hash]bool {
 	return res
 }
 
-//func countHKKInSet(target common.Hash, m map[state.HashedKeyKey]bool) int {
+// return the list of HashedKeyKeys of a specific Hash(address) from a set m
 func countHKKInSet(target common.Hash, m map[state.HashedKeyKey]bool) []state.HashedKeyKey {
 	c := []state.HashedKeyKey{}
 	for k := range m {
@@ -146,6 +177,8 @@ func countHKKInSet(target common.Hash, m map[state.HashedKeyKey]bool) []state.Ha
 	return c
 }
 
+// return just the hashed keys from a set of HashedKeyKeys for a specific target
+// hash address
 func keysForHashAddr(target common.Hash, hashKeys map[HK]bool) map[common.Hash]bool {
 	res := make(map[common.Hash]bool)
 	for hk := range hashKeys {
@@ -156,17 +189,10 @@ func keysForHashAddr(target common.Hash, hashKeys map[HK]bool) map[common.Hash]b
 	return res
 }
 
-type HashedKeyKey struct {
-	addr common.Hash
-	key  common.Hash
-}
 
-func (k HashedKeyKey) Format(s fmt.State, c rune) {
-	k.addr.Format(s, c)
-	s.Write([]byte(", "))
-	k.key.Format(s, c)
-}
+// utils on logs
 
+// are these two prelog objects identical (same Accounts, AccountNodes, Keys, and KeyNodes)
 func IsIdenticalPre(obj1 *state.PreLog, obj2 *state.PreLog) bool {
 	log.Info("Identical check", "root1", obj1.Root, "root2", obj2.Root)
 	if !reflect.DeepEqual(obj1.Accounts, obj2.Accounts) {
@@ -192,6 +218,9 @@ func IsIdenticalPre(obj1 *state.PreLog, obj2 *state.PreLog) bool {
 	return true
 }
 
+
+// journal operations
+
 // the real key here is that something might be deletd because it's empty in
 // one block and then is created again in the next block. We need to make sure
 // that things that eventually end up existing aren't returned in this map.
@@ -202,6 +231,7 @@ func GetEmptys(preObj *state.PreLog) map[common.Address]bool {
 	return created
 }
 
+// if all the journals in this slice are len zero then ignore it (true)
 func ignoreJournal(j [][]state.LogJournalEntry) bool {
 	for _, jn := range j {
 		if len(jn) > 0 {

@@ -19,7 +19,7 @@ func ExploreTrie(obj state.Log) ([]common.Hash, bool) {
 	rootRaw, ok := obj.ANodes()[obj.RootHash()]
 	log.Info("Root", "roothash", obj.RootHash())
 	if !ok {
-		log.Info("Log", "accounts", len(obj.AccountsSeen()), "Anodes", obj.AccountsSeen())
+		//log.Info("Log", "accounts", len(obj.AccountsSeen()), "Anodes", obj.AccountsSeen())
 
 		// panic("Root isn't in nodes")
 		return nil, false

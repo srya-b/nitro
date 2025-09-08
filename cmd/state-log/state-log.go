@@ -194,58 +194,58 @@ func checkPreLogRoot(preObj *state.PreLog, prevRoot common.Hash) bool {
 	return true
 }
 
-func ProcessLogs() {
-	//one := big.NewInt(1)
-	//blockNo := big.NewInt(0)
-	blockNo := 0
-	version := 1
-
-	done := false
-	noMoreVersions := false
-	prevRoot := types.EmptyCodeHash
-
-	for { // for each block
-		for { // for each log file in that block
-			// read preLog and log everything
-			preObj, _, exists := getPrePostObjs(blockNo, version)
-			if !exists {
-				if noMoreVersions {
-					done = true
-				} else {
-					noMoreVersions = true
-				}
-			}
-
-			// assert that the preLog's root is the same as the last postLog
-			if !checkPreLogRoot(preObj, prevRoot) {
-				panic("Prelog doesn' thave the same hash as the previous postLog")
-			}
-			validatePreLog(preObj)
-			done = true
-			break
-			// samplePostData(postObj)
-
-			// add the preLog accesses
-
-			// log.Info("Pre accesses", "l", len(preAccesses))
-
-			// consume upto and including all logs where
-			// process the postLogs in the order of the journal with the updated nodes
-
-			break
-		}
-		if done {
-			break
-		}
-		if noMoreVersions {
-			//blockNo.Add(blockNo, one)
-			blockNo++
-			version = 1
-			log.Info("Next block", "b", blockNo)
-		}
-	}
-
-}
+//func ProcessLogs() {
+//	//one := big.NewInt(1)
+//	//blockNo := big.NewInt(0)
+//	blockNo := 0
+//	version := 1
+//
+//	done := false
+//	noMoreVersions := false
+//	prevRoot := types.EmptyCodeHash
+//
+//	for { // for each block
+//		for { // for each log file in that block
+//			// read preLog and log everything
+//			preObj, _, exists := getPrePostObjs(blockNo, version)
+//			if !exists {
+//				if noMoreVersions {
+//					done = true
+//				} else {
+//					noMoreVersions = true
+//				}
+//			}
+//
+//			// assert that the preLog's root is the same as the last postLog
+//			if !checkPreLogRoot(preObj, prevRoot) {
+//				panic("Prelog doesn' thave the same hash as the previous postLog")
+//			}
+//			validatePreLog(preObj)
+//			done = true
+//			break
+//			// samplePostData(postObj)
+//
+//			// add the preLog accesses
+//
+//			// log.Info("Pre accesses", "l", len(preAccesses))
+//
+//			// consume upto and including all logs where
+//			// process the postLogs in the order of the journal with the updated nodes
+//
+//			break
+//		}
+//		if done {
+//			break
+//		}
+//		if noMoreVersions {
+//			//blockNo.Add(blockNo, one)
+//			blockNo++
+//			version = 1
+//			log.Info("Next block", "b", blockNo)
+//		}
+//	}
+//
+//}
 
 /*
 

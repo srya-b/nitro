@@ -263,7 +263,7 @@ If a shortNode is seen where a fullNode used to be, that means the keys in this 
 func GetAccessOrder(preObj *state.PreLog, postObj *state.PostLog) []common.Hash {
 	t := ValidatorTrieFromObj(preObj)
 	// accesses := state.OrderAccesses(preObj.Journals, t)
-	accesses := state.OrderAccesses(preObj.Journals, preObj.Root, preObj.Accounts, preObj.AccountNodes, preObj.Keys, preObj.KeyNodes, t)
+	accesses := state.OrderAccessesReverse(preObj.Journals, preObj.Root, preObj.Accounts, preObj.AccountNodes, preObj.Keys, preObj.KeyNodes, t)
 	return accesses
 }
 

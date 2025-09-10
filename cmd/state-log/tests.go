@@ -4,6 +4,7 @@ import (
 	"fmt"
 	_"math/big"
 	"reflect"
+	"maps"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -88,6 +89,34 @@ func checkCreatesDeletes(preObj *state.PreLog) (state.Set, state.Set, state.Set)
 			}
 		}
 	}
+
+	// validation test for JournalToExport
+	ejournals := state.JournalsToExported(preObj.Journals)
+	eCreatedAccounts := GetCreatedAccountsExported(ejournals)
+	eDeletedAccounts := GetDeletedAccountsExported(ejournals)
+	eEmptyDeletes := GetEmptyDeletesExported(preObj.EmptyDeletes, ejournals)
+
+	anyProblem := false
+	if !maps.Equal(createdAccounts, eCreatedAccounts) {
+		log.Error("create accounts not the same", "createdAccounts", len(createdAccounts), "eCreatedAccounts", len(eCreatedAccounts))
+		anyProblem = true
+	}
+
+	if !maps.Equal(deletedAccounts, eDeletedAccounts) {
+		log.Error("create accounts not the same", "deletedAccounts", len(deletedAccounts), "eDeletedAccounts", len(eDeletedAccounts))
+		anyProblem = true
+	}
+
+	if !maps.Equal(emptyDeletes, eEmptyDeletes) {
+		log.Error("create accounts not the same", "emptyDeletes", len(emptyDeletes), "eEmptyDeletes", len(eEmptyDeletes))
+		anyProblem = true
+	}
+
+	if anyProblem {
+		panic("Validation failed")
+	}
+		
+
 	return mapSubtract(createdAccounts, emptyDeletes), MergeMaps(deletedAccounts, emptyDeletes), emptyDeletes
 }
 
@@ -102,6 +131,7 @@ func validatePreLog(preObj *state.PreLog, postObj *state.PostLog) bool {
 	preAccounts, _ := ExploreTrie(preObj)
 	//preTrie := ValidatorTrieFromObj(preObj)
 	hPreAccountsReached := listToSet(preAccounts)
+	ejournals := state.JournalsToExported(preObj.Journals)
 
 	// all the accounts that were created in this set and persist to the
 	// future, all other created and deleted will not be returned here
@@ -135,11 +165,32 @@ func validatePreLog(preObj *state.PreLog, postObj *state.PostLog) bool {
 	hKeysInObj, hKeysInObjPreimages := hashKeySet(mapToSet(preObj.Keys))
 	_, _ = hKeysInObj, hKeysInObjPreimages
 	createdKeys := state.GetCreatedKeys(preObj.Journals)
+	eCreatedKeys := GetCreatedKeysExported(ejournals)
+
 	hCreatedKeys, hCreatedKeysPreimages := hashKeySet(createdKeys)
 	_, _ = hCreatedKeys, hCreatedKeysPreimages
+
 	zeroGets := state.GetKeysAlwaysZero(preObj.Journals)
+	eZeroGets := GetKeysAlwaysZeroExported(ejournals)
 	hZeroGets, hZeroGetsPreimages := hashKeySet(zeroGets)
 	_, _ = hZeroGets, hZeroGetsPreimages
+
+	anyFail := false
+	if !maps.Equal(eCreatedKeys, createdKeys) {
+		log.Error("Keys not equal", "createdKeys", len(createdKeys), "eCreatedKeys", len(eCreatedKeys))
+		anyFail = true
+	}
+
+	if !maps.Equal(eZeroGets, zeroGets) {
+		log.Error("Keys not equal", "zeroGets", len(zeroGets), "eZeroGets", len(eZeroGets))
+		anyFail = true
+	}
+	
+	if anyFail {
+		panic("Validatioojn fail")
+	}
+
+
 	//deletedKeys := state.GetDeletedKeys(preObj.Journals)
 	keysInTrie := mapSubtract(mapToSet(preObj.Keys), createdKeys)
 	keysInTrie = mapSubtract(keysInTrie, zeroGets)

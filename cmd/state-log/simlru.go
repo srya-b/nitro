@@ -1,0 +1,102 @@
+package main
+
+import (
+	"fmt"
+	"github.com/ethereum/go-ethereum/log"
+)
+
+type LRUSim struct {
+	cache *LRUCache
+}
+
+
+func NewLRUSim(limit int) *LRUSim {
+	return &LRUSim{
+		cache: NewLRUCache(limit),
+	}
+}
+
+
+func (s *LRUSim) Run(dir string) {
+	logFiles := getLogFilesSorted(dir)
+
+	for j := 0; j < len(logFiles); j++ {
+		if j > 100 {
+			break
+		}
+		for i := 0; i < len(logFiles[j]) - 1; i += 1 {
+			pre := logFiles[j][i]
+			post := logFiles[j][i+1]
+			if pre.Type == PRE && post.Type == POST {
+				preObj, exists := getPreObj(pre.Blockno, pre.Count)
+				if !exists {
+					log.Error("First preLog should exist")
+					break
+				}
+				postObj, exists := getPostObj(post.Blockno, post.Count)
+				if !exists {
+					log.Error("Post obj shoudl never not exist, only preObj shouldn't exist", "block", post.Blockno, "count", post.Count)
+					panic("")
+				}
+				
+				if ignoreJournal(preObj.Journals) {
+					log.Info("An empty journal is valid.")
+					continue
+				}
+
+				ok := CheckRoot(preObj)
+				if !ok {
+					_, exists := postObj.AccountNodes[preObj.Root]
+					if !exists {
+						panic("Root isn't in the postlog either")
+					}
+					log.Debug("Don't work this block preLog is empty")
+					continue
+				}
+
+				accesses := AccessesForValidation(preObj)
+				log.Info("Accesses", "l", len(accesses))
+				s.PreLogAccesses(accesses)
+				post_accesses := OrderedAccessesForPostLog(preObj, postObj)
+				s.PostLogAccesses(post_accesses)
+			} else {
+				panic(fmt.Sprintf("weird logfiles: %v", logFiles[j]))
+			}
+			break
+		}
+	}
+}
+
+func (s *LRUSim) PreLogAccesses(accesses map[Node]bool) {
+	for n := range accesses {
+		s.cache.Access(&n)
+	}
+
+	log.Info("PreLog accesses")
+	s.cache.PrintState()
+}
+
+func (s *LRUSim) PostLogAccesses(accesses []Node) {
+	for _, n := range accesses {
+		s.cache.Access(&n)
+	}
+
+	log.Info("Postlog accesses")
+	s.cache.PrintState()
+}
+
+func (s *LRUSim) accessesInMap(accesses map[Node]bool) {
+	// do the accesses in the LRU cache
+	hits := 0
+	misses := 0
+	for n := range accesses {
+		if s.cache.Contains(n) {
+			hits++
+		} else {
+			misses++
+		}
+	}	
+
+	log.Info("Hits and misses", "hits", hits, "misses", misses)
+}
+

@@ -251,5 +251,3 @@ func GetKeysAlwaysZeroExported(j [][]state.ExportedJournalEntry) map[state.KeyKe
 	return finalSet
 }
 
-
-

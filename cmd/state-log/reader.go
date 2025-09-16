@@ -156,7 +156,7 @@ func getLogFilesSorted(dir string) [][]LogFile {
 
 func readPre(b int, v int) ([]byte, error) {
 //func readPre(lf LogFile) ([]byte, error) {
-	fn := fmt.Sprintf("%s/predata-%v-%d.json", logDir, b, v)
+	fn := fmt.Sprintf("%s/predata-%v-%d.json", LOGDIR, b, v)
 	log.Info("preLog", "file", fn)
 	f, err := os.Open(fn)
 	if err != nil {
@@ -173,7 +173,7 @@ func readPre(b int, v int) ([]byte, error) {
 
 func readPost(b  int, v int) ([]byte, error) {
 //func readPost(lf LogFile) ([]byte, error) {
-	fn := fmt.Sprintf("%s/postdata-%v-%d.json", logDir, b, v)
+	fn := fmt.Sprintf("%s/postdata-%v-%d.json", LOGDIR, b, v)
 	//fn := lf.FileName
 	log.Info("Getting Post", "fn", fn)
 	f, err := os.Open(fn)

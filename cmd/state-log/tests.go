@@ -128,6 +128,15 @@ func validatePreLog(preObj *state.PreLog, postObj *state.PostLog) bool {
 		return true
 	}
 
+	
+	// IMPORTANT: there are duplicate node hashes in the tries of different
+	// tries and that makes sense if the key is 1 and the value is 1
+	// accountHashes, _ := ExploreTrieAllHashes(preObj)
+	// c := findDuplicateHashes(accountHashes)
+	// if c > 0 {
+	// 	panic("c>0")
+	// }
+
 	preAccounts, _ := ExploreTrie(preObj)
 	//preTrie := ValidatorTrieFromObj(preObj)
 	hPreAccountsReached := listToSet(preAccounts)
@@ -474,3 +483,36 @@ func validatePrePost(preObj *state.PreLog, postObj *state.PostLog) bool {
 	log.Info("We all good")
 	return true
 }
+
+func findDuplicateHashes(m map[common.Hash]map[common.Hash][]byte) int {
+	hashes := make(map[common.Hash][]byte)
+	count := 0
+	for _, hns := range m {
+		for hn := range hns {
+			// store the preimages
+			oldraw, ok := hashes[hn]
+			if ok {
+				log.Error("Duplicate node hash", "hn", hn)
+				newraw, _ := hns[hn]
+				// decode the nodes
+				oldn, err := trie.PublicDecodeNode(nil, oldraw)
+				if err != nil {
+					log.Error("Failed to decode old node", "oldn", oldraw)
+				} 
+
+				newn, err := trie.PublicDecodeNode(nil, newraw)
+				if err != nil {
+					log.Error("Failed to decode new node", "newn", newraw)
+				}
+
+				log.Error("The nodes", "oldn", oldn, "newn", newn)
+				count++
+			} else {
+				hashes[hn] = hns[hn]
+			}
+		}
+	}
+	return count
+}
+
+

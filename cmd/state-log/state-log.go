@@ -15,6 +15,15 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 )
 
+func CheckRoot(obj state.Log) bool {
+	_, ok := obj.ANodes()[obj.RootHash()]
+	if !ok {
+		return false
+	}
+
+	return true
+}
+
 func ExploreTrie(obj state.Log) ([]common.Hash, bool) {
 	rootRaw, ok := obj.ANodes()[obj.RootHash()]
 	log.Info("Root", "roothash", obj.RootHash())
@@ -56,6 +65,27 @@ func ExploreTrieKeys(obj state.Log) (map[common.Hash][]common.Hash, bool) {
 	return count, true
 }
 
+func ExploreTrieAllHashes(obj state.Log) (map[common.Hash]map[common.Hash][]byte, bool) {
+	rootRaw, ok := obj.ANodes()[obj.RootHash()]
+	log.Info("Root", "roothash", obj.RootHash())
+	if !ok {
+		log.Debug("Log", "accounts", len(obj.AccountsSeen()), "Anodes", obj.AccountsSeen())
+
+		// panic("Root isn't in nodes")
+		return nil, false
+	}
+	root, err := trie.PublicDecodeNode(nil, rootRaw)
+	if err != nil {
+		log.Error("COuldn't decode pre root")
+		panic(err)
+	}
+	testMap := MergeMaps(obj.ANodes(), obj.KNodes())
+	var emptyHash common.Hash
+	emptyHash.SetBytes(nil)
+	count := trie.TrieFromNodeHashDuplicates(root, testMap, []byte{})
+	return count, true
+}
+
 func ValidatorTrieFromObj(obj state.Log) *trie.ValidatorTrie {
 	rootRaw, ok := obj.ANodes()[obj.RootHash()]
 	if !ok {
@@ -87,12 +117,22 @@ func ExploreTarget(target common.Address, preObj *state.PreLog, postObj *state.P
 	return false
 }
 
-var logDir string = "/home/admin/statedb-data"
+var LOGDIR string = "/home/admin/statedb-data"
+
+func validationMain(logDir string) {
+	CheckPostDataLogsEverything(logDir)
+}
+
+func simMain(logDir string) {
+	s := NewLRUSim(1000)
+	s.Run(logDir)
+}
 
 func main() {
 	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelDebug, true)))
 
-	CheckPostDataLogsEverything(logDir)
+	//validateMain(LOGDIR)
+	simMain(LOGDIR)
 	return
 
 	// get all the pre and post data for block 0

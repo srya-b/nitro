@@ -71,6 +71,38 @@ func (a ByTotalOrder) Less(i, j int) bool {
 //	}
 //}
 
+func getDataBlockRange(dir string) (int, int) {
+	logFiles := getLogFilesSorted(dir)
+
+	firstLog := logFiles[0][0]
+	lastLog := logFiles[len(logFiles)-1][0]
+
+	return firstLog.Blockno, lastLog.Blockno
+}
+
+func getNumTxsInNBlocks(n int, dir string) {
+	logFiles := getLogFilesSorted(dir)
+	firstNLogs := logFiles[:n]
+	for _, logs := range firstNLogs {
+		// count total numeber of journals in all preLogs
+		count := 0 
+		for _, p := range logs {
+			if p.Type == PRE {
+				preObj, _ := getPreObj(p.Blockno, p.Count)
+				if ignoreJournal(preObj.Journals) {
+					continue
+				}
+				ok := CheckRoot(preObj)
+				if !ok {
+					continue
+				}
+				count += len(preObj.Journals)
+			}
+		}
+		log.Info("Num journals", "block", logs[0].Blockno, "journals", count)
+	}
+}		
+
 func getLogFilesSorted(dir string) [][]LogFile {
 	var logFiles []LogFile
 	files, err := os.ReadDir(dir)

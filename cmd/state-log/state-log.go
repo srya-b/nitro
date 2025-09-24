@@ -133,6 +133,9 @@ func main() {
 
 	//validateMain(LOGDIR)
 	simMain(LOGDIR)
+	//first, last := getDataBlockRange(LOGDIR)
+	//log.Info("Blocks collected", "first", first, "last", last)
+	//getNumTxsInNBlocks(5, LOGDIR)
 	return
 
 	// get all the pre and post data for block 0

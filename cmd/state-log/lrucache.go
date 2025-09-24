@@ -63,6 +63,48 @@ func (c *LRUCache) Access(n *Node) (*Node, *Node) {
 	return n, evicted
 }
 
+func (c *LRUCache) AccessWithBytes(n *Node, sizes map[Node]int) (*Node, *Node, int) {
+	// First, check if the Node exists in the cache.
+	if element, ok := c.contents[*n]; ok {
+		c.list.MoveToFront(element)
+		c.hits++
+		return element.Value.(*cacheNode).node, nil, 0 // Return the found node and no evicted node.
+	}
+
+	// If the Node is not found, it's a miss.
+	c.misses++
+
+	var evicted *Node
+
+	// Check if the cache is full before adding the new Node.
+	if c.list.Len() >= c.limit {
+		// Get the least recently used node from the back of the list.
+		backElement := c.list.Back()
+		if backElement != nil {
+			evicted = backElement.Value.(*cacheNode).node
+		}
+	}
+
+	// Now, put the new Node into the cache. The Put method handles the eviction.
+	// We've already captured the evicted node, so we don't need the Put method to return it.
+	c.Put(n)
+
+	numBytes, ok := sizes[*n]
+	if !ok {
+		log.Error("Accessing a Node that has no bytes attached to it", "n", *n)
+		panic("")
+	}
+
+	if numBytes == 0 {
+		log.Error("This node can't have 0 bytes of size", "n", *n)
+		panic("")
+	}
+
+	// Return the newly accessed node and the evicted node (if any).
+	return n, evicted, numBytes
+	
+}
+
 // Get retrieves a Node from the cache.
 func (c *LRUCache) Get(n Node) (*Node, bool) {
 	if element, ok := c.contents[n]; ok {

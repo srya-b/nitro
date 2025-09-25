@@ -125,7 +125,9 @@ func validationMain(logDir string) {
 
 func simMain(logDir string) {
 	s := NewLRUSim(1000)
-	s.Run(logDir)
+	//s.Run(logDir)
+	//s.RunRecordTxBytes(logDir)
+	s.RunRecordBlockBytes(logDir)
 }
 
 func main() {

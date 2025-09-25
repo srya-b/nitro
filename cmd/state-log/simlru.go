@@ -66,8 +66,6 @@ func (s *LRUSim) Run(dir string) {
 	}
 }
 
-
-
 func (s *LRUSim) RunRecordTxBytes(dir string) {
 	logFiles := getLogFilesSorted(dir)
 
@@ -105,9 +103,9 @@ func (s *LRUSim) RunRecordTxBytes(dir string) {
 					continue
 				}
 
-				accesses, sizes, txNodes := AccessesForValidationWithBytes(preObj)
+				accesses, sizes, txNodes := AccessesForValidationTxBytes(preObj)
 				log.Info("Accesses", "l", len(accesses))
-				bytesMissingPerTx := s.PreLogAccessesWithBytes(accesses, sizes, txNodes)
+				bytesMissingPerTx := s.PreLogAccessesTxBytes(accesses, sizes, txNodes)
 				_ = bytesMissingPerTx
 				//log.Info("Bytes missing per Tx", "l", bytesMissingPerTx)
 				post_accesses := OrderedAccessesForPostLog(preObj, postObj)
@@ -120,16 +118,72 @@ func (s *LRUSim) RunRecordTxBytes(dir string) {
 	}
 }
 
+func (s *LRUSim) RunRecordBlockBytes(dir string) {
+	logFiles := getLogFilesSorted(dir)
+	bytesMissingPerBlock := []int{}
+	for j := 0; j < len(logFiles); j++ {
+		if j > 10000 {
+			break
+		}
+		bytesForBlock := 0
+		for i := 0; i < len(logFiles[j]) - 1; i += 1 {
+			pre := logFiles[j][i]
+			post := logFiles[j][i+1]
+			if pre.Type == PRE && post.Type == POST {
+				preObj, exists := getPreObj(pre.Blockno, pre.Count)
+				if !exists {
+					log.Error("First preLog should exist")
+					break
+				}
+				postObj, exists := getPostObj(post.Blockno, post.Count)
+				if !exists {
+					log.Error("Post obj shoudl never not exist, only preObj shouldn't exist", "block", post.Blockno, "count", post.Count)
+					panic("")
+				}
+				
+				if ignoreJournal(preObj.Journals) {
+					//log.Info("An empty journal is valid.")
+					continue
+				}
+
+				ok := CheckRoot(preObj)
+				if !ok {
+					_, exists := postObj.AccountNodes[preObj.Root]
+					if !exists {
+						panic("Root isn't in the postlog either")
+					}
+					//log.Debug("Don't work this block preLog is empty")
+					continue
+				}
+
+				accesses, sizes := AccessesForValidationWithBytes(preObj)
+				//log.Info("Accesses", "l", len(accesses))
+				bytesMissing := s.PreLogAccessesBlockBytes(accesses, sizes)
+				bytesForBlock += bytesMissing
+				//log.Info("Bytes missing per Tx", "l", bytesMissingPerTx)
+				post_accesses := OrderedAccessesForPostLog(preObj, postObj)
+				s.PostLogAccesses(post_accesses)
+			} else {
+				panic(fmt.Sprintf("weird logfiles: %v", logFiles[j]))
+			}
+			break
+		}
+		bytesMissingPerBlock = append(bytesMissingPerBlock, bytesForBlock)
+	}
+	//log.Info("Bytes missing per block", "bytes", bytesMissingPerBlock)
+	BlockBytesHistogramWriteFile(bytesMissingPerBlock, 10000)
+}
+
 func (s *LRUSim) PreLogAccesses(accesses map[Node]bool) {
 	for n := range accesses {
 		s.cache.Access(&n)
 	}
 
 	log.Info("PreLog accesses")
-	s.cache.PrintState()
+	//s.cache.PrintState()
 }
 
-func (s *LRUSim) PreLogAccessesWithBytes(accesses map[Node]bool, sizes map[Node]int, txNodes [][]Node) []int {
+func (s *LRUSim) PreLogAccessesTxBytes(accesses map[Node]bool, sizes map[Node]int, txNodes [][]Node) []int {
 	seen := make(map[Node]bool)
 	perTxBytes := []int{}
 	// iterate perTx rather than over accesses
@@ -163,26 +217,31 @@ func (s *LRUSim) PreLogAccessesWithBytes(accesses map[Node]bool, sizes map[Node]
 		perTxBytes = append(perTxBytes, txBytes)
 	}
 
-	//for n := range accesses {
-	//	// UNCLEAR: why there should be nodes with 0 bytes but in such a case ignore 
-	//	// this access
-	//	numBytes, ok := sizes[n]
-	//	if !ok {
-	//		log.Error("Accessing a node that has no bytes", "n", n)
-	//		panic("")
-	//	}
-
-	//	if numBytes == 0 {
-	//		// skip this node
-	//		continue
-	//	}
-
-	//	s.cache.AccessWithBytes(&n, sizes)
-	//}
-
 	log.Info("PreLog accesses")
-	s.cache.PrintState()
+	//s.cache.PrintState()
 	return perTxBytes
+}
+
+func (s *LRUSim) PreLogAccessesBlockBytes(accesses map[Node]bool, sizes map[Node]int) int {
+	totalBytes := 0
+	for n := range accesses {
+		numBytes, ok := sizes[n]
+		if !ok {
+			log.Error("Accessing a node that has no bytes", "n", n)
+			panic("")
+		}
+
+		if numBytes == 0 {
+			// skip this node
+			continue
+		}
+		_, _, bytesMissing := s.cache.AccessWithBytes(&n, sizes)
+		totalBytes += bytesMissing
+	}
+
+	//log.Info("postlog accesses")
+	//s.cache.PrintState()
+	return totalBytes
 }
 
 func (s *LRUSim) PostLogAccesses(accesses []Node) {
@@ -190,8 +249,8 @@ func (s *LRUSim) PostLogAccesses(accesses []Node) {
 		s.cache.Access(&n)
 	}
 
-	log.Info("Postlog accesses")
-	s.cache.PrintState()
+	//log.Info("postlog accesses")
+	//s.cache.PrintState()
 }
 
 func (s *LRUSim) accessesInMap(accesses map[Node]bool) {

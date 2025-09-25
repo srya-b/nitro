@@ -63,6 +63,8 @@ func (c *LRUCache) Access(n *Node) (*Node, *Node) {
 	return n, evicted
 }
 
+// Return the number size (in bytes) of the data missing if the access is a "miss".
+// On a "hit" returns 0 bytes missing
 func (c *LRUCache) AccessWithBytes(n *Node, sizes map[Node]int) (*Node, *Node, int) {
 	// First, check if the Node exists in the cache.
 	if element, ok := c.contents[*n]; ok {

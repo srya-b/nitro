@@ -29,7 +29,8 @@ func GetCreatedAccountsExported(j [][]state.ExportedJournalEntry) state.Set {
 				_, ok := accountsCreated[entry.Account]
 				if ok {
 					log.Error("Two un-reverted createObject changes to the same account", "addr", entry.Account)
-					panic("err")
+					//panic("err")
+					continue
 				}
 				accountsCreated[entry.Account] = true
 			case state.SelfDestructChange:

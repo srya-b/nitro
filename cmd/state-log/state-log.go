@@ -130,11 +130,17 @@ func simMain(logDir string) {
 	s.RunRecordBlockBytes(logDir)
 }
 
+func concurrentMain(logDir string) {
+	ConcurrentRun(logDir)
+}
+
 func main() {
 	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelDebug, true)))
 
 	//validateMain(LOGDIR)
-	simMain(LOGDIR)
+	//simMain(LOGDIR)
+	concurrentMain(LOGDIR)
+
 	//first, last := getDataBlockRange(LOGDIR)
 	//log.Info("Blocks collected", "first", first, "last", last)
 	//getNumTxsInNBlocks(5, LOGDIR)

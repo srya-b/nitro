@@ -12,6 +12,52 @@ import (
 	_"github.com/ethereum/go-ethereum/trie"
 )
 
+// all the keys written to in this journal that aren't reverted
+// FORNOW: any attempt to write to a storage slot counts as a write
+// FUTURE: if the slot goes from Origvalue back to Origvalue within one transaction we can consider it
+// not written and not a conflict
+func GetWrittenKeys(j []state.ExportedJournalEntry) map[state.KeyKey]bool {
+	written := make(map[state.KeyKey]bool)
+	//origWrite := make(map[state.KeyKey]bool)
+	//var zeroVal common.Hash
+	//zeroVal.SetBytes(nil)
+	for _, e := range j {
+		switch entry := (e.Entry).(type) {
+		case state.StorageChange:
+			//origValue := entry.Origvalue
+			//preValue := entry.Prevvalue
+			// we want to distinguish transactions that change a slot from origValue back to the origValue
+			// prevalue != newvalue is assumed from state_object code
+			// prevalue == origValue: store this as a change from orig
+			if e.Reverted {
+				continue
+			} 
+			kk := state.NewKeyKey(entry.Account, entry.Key)
+			written[kk] = true
+		}
+	}
+	return written
+}
+
+func GetReadButNotWrite(j []state.ExportedJournalEntry) map[state.KeyKey]bool {
+	read := make(map[state.KeyKey]bool)
+
+	for _, e := range j {
+		switch entry := (e.Entry).(type) {
+		case state.GetStorageEntry:
+			kk := state.NewKeyKey(entry.Account, entry.Key)
+			read[kk] = true
+		case state.StorageChange:
+			kk := state.NewKeyKey(entry.Account, entry.Key)
+			_, ok := read[kk]
+			if ok {
+				delete(read, kk)
+			}
+		}
+	}
+	return read
+}
+
 // Determine which accounts were created in this transaction. We 
 // need to be careful to check for create changes that were reverted.
 func GetCreatedAccountsExported(j [][]state.ExportedJournalEntry) state.Set {

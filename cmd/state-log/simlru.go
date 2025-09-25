@@ -23,7 +23,7 @@ func (s *LRUSim) Run(dir string) {
 		if j > 100 {
 			break
 		}
-		for i := 0; i < len(logFiles[j]) - 1; i += 1 {
+		for i := 0; i < len(logFiles[j]) - 1; i += 2 {
 			pre := logFiles[j][i]
 			post := logFiles[j][i+1]
 			if pre.Type == PRE && post.Type == POST {

@@ -110,7 +110,97 @@ func AccessesForValidation(preObj *state.PreLog) map[Node]bool {
 // for the preLog we don't really care about them in order, we just want
 // a set of all accesses so we can figure out hits and misses in the cache
 // it ALSO returns the node hashes per Journal/transaction
-func AccessesForValidationWithBytes(preObj *state.PreLog) (map[Node]bool, map[Node]int, [][]Node) {
+func AccessesForValidationWithBytes(preObj *state.PreLog) (map[Node]bool, map[Node]int) {
+    //targetaddr := common.HexToAddress("0x31EdEAA84822De25AF4ca790C187Ff1D45ef7504")
+    //targetkey := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000")
+    out := make(map[Node]bool)
+    outBytes := make(map[Node]int)
+    //outTxs := [][]Node{}
+    ejournals := state.JournalsToExported(preObj.Journals)
+    //vtrie := ValidatorTrieFromObj(preObj)
+
+    for jidx, journal := range ejournals {
+        //outNodes := []Node{}
+        for idx, e := range journal {
+            switch logEntry := (e.Entry).(type) {
+            // In both CreateObject and CreateContract we don't need to do
+            // anything special because only Get requests will log everything
+            case state.GetStateObjectEntry:
+                // In GetStateObjectEntry, the path is already stored in the data
+                // of the preObj, we just need to turn it into an (haddr, hkey) pair
+                addr := logEntry.Account
+                pathHashes, exists := preObj.Accounts[addr]
+                if !exists {
+                    // There is never a real data trie that is empty so always a path,
+                    // and we should see accounts with no data
+                    log.Error("getStateObjectEntry doesn't exist", "addr", addr)
+                    panic("")
+                }
+                for _, h := range pathHashes {
+                    n := Node{common.Hash{}, h}
+                    out[n] = true
+
+                    // get the raw bytes of this Node
+                    raw, ok := preObj.AccountNodes[h]
+                    if !ok {
+                        log.Error("getStateObject: Some hash in the path isn't in AccountNodes", "h", h)
+                        panic("")
+                    }
+                    outBytes[n] = len(raw)
+                    //outNodes = append(outNodes, n)
+                }
+            case state.GetStorageEntry:
+                // For GetStorageEntry the Addr of the Node should be the hash
+                // of the address so that we have unique nodes for different storage tries
+                addr, key := logEntry.Account, logEntry.Key 
+
+                //if addr.Cmp(targetaddr) == 0 && key.Cmp(targetkey) == 0 {
+                //    continue
+                //}
+
+                _, eaddr := ExcludeAddr[addr]
+                _, ekey := ExcludeKey[key]
+                if eaddr && ekey {
+                    continue
+                }
+
+                kk := state.NewKeyKey(addr, key)
+                pathHashes, exists := preObj.Keys[kk]
+                if !exists {
+                    log.Error("getStorageEntry doesn't exist", "key", kk, "reverted", e.Reverted, "jidx", jidx, "idx", idx)
+                    //state.PublicFindGetSets(addr, key, preObj.Journals)
+                    //state.PublicFindAll(targetaddr, preObj.Journals)
+                    //panic("")
+                }
+                haddr := common.BytesToHash(trie.PublicHashKey(addr.Bytes()))
+                for _, h := range pathHashes {
+                    n := Node{haddr, h}
+                    out[n] = true
+
+                    raw, ok := preObj.KeyNodes[h]
+                    if !ok {
+                        log.Error("getStorageEntry: hash in pathHashes not in keyNodes", "h", h)
+                        panic("")
+                    }
+                    outBytes[n] = len(raw)
+                    //outNodes = append(outNodes, n)
+                }
+            case state.StorageChange:
+                // nothing to be done for a storageChange, because the SetState
+                // function always does a getStateObject first and then a getState
+            }
+        }
+        
+        //outTxs = append(outTxs, outNodes)
+    }
+    return out, outBytes
+}
+
+
+// for the preLog we don't really care about them in order, we just want
+// a set of all accesses so we can figure out hits and misses in the cache
+// it ALSO returns the node hashes per Journal/transaction
+func AccessesForValidationTxBytes(preObj *state.PreLog) (map[Node]bool, map[Node]int, [][]Node) {
     //targetaddr := common.HexToAddress("0x31EdEAA84822De25AF4ca790C187Ff1D45ef7504")
     //targetkey := common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000")
     out := make(map[Node]bool)
@@ -300,7 +390,8 @@ func OrderedAccessesForPostLog(preObj *state.PreLog, postObj *state.PostLog) []N
                 pathHashes, exists := postObj.Keys[kk]
                 if !exists {
                     log.Error("Should definitely exist", "kk", kk)
-                    panic("")
+                    //panic("")
+                    continue
                 }
 
                 for _, h := range pathHashes {

@@ -91,17 +91,67 @@ func getNumTxsInNBlocks(n int, dir string) {
 				preObj, _ := getPreObj(p.Blockno, p.Count)
 				if ignoreJournal(preObj.Journals) {
 					continue
+					//break
 				}
 				ok := CheckRoot(preObj)
 				if !ok {
 					continue
+					//break
 				}
-				count += len(preObj.Journals)
+				//count += len(preObj.Journals)
+				count += countNonEmptyJournals(preObj.Journals)
+				break
 			}
 		}
 		log.Info("Num journals", "block", logs[0].Blockno, "journals", count)
 	}
 }		
+
+type LogPair struct {
+	BlockNo int
+	PreObj	*state.PreLog
+	PostObj	*state.PostLog
+}
+
+func validatedLogs(dir string, limit int) [][]LogPair {
+	logFiles := getLogFilesSorted(dir)
+	out := make([][]LogPair, min(len(logFiles), limit))
+
+	for j := 0; j < min(len(logFiles), limit); j++ {
+		pairs := []LogPair{}
+		for i := 0; i < len(logFiles[j]) - 1; i += 2 {
+			pre := logFiles[j][i]
+			post := logFiles[j][i+1]
+			if pre.Type == PRE && post.Type == POST {
+				preObj, exists := getPreObj(pre.Blockno, pre.Count)
+				if !exists {
+					log.Error("First pre log should exists")
+					break
+				}
+				postObj, exists := getPostObj(post.Blockno, post.Count)
+				if !exists {
+					log.Error("Post obj should never not exist", "block", post.Blockno, "count", post.Count)
+					panic("read pstlog error")
+				}
+				if ignoreJournal(preObj.Journals) {
+					continue
+				}
+				ok := CheckRoot(preObj)
+				if !ok {
+					_, exists := postObj.AccountNodes[preObj.Root]
+					if !exists {
+						panic("Root isn't in the post log either")
+					}
+					continue
+				}
+				log.Info("Valdiated logs", "block", pre.Blockno)
+				pairs = append(pairs, LogPair{pre.Blockno, preObj, postObj})	
+			}
+		}
+		out[j] = pairs
+	}
+	return out
+}
 
 func getLogFilesSorted(dir string) [][]LogFile {
 	var logFiles []LogFile
@@ -185,7 +235,7 @@ func getLogFilesSorted(dir string) [][]LogFile {
 	log.Debug("Grouped log files", "sample", groupedLogFiles[0])
 	return groupedLogFiles
 }
-
+	
 func readPre(b int, v int) ([]byte, error) {
 //func readPre(lf LogFile) ([]byte, error) {
 	fn := fmt.Sprintf("%s/predata-%v-%d.json", LOGDIR, b, v)

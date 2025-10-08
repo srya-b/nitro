@@ -1,10 +1,14 @@
 package main
 
 import (
+	"os"
 	"fmt"
 	_"math/big"
 	"reflect"
 	"maps"
+	"strings"
+	"strconv"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -515,4 +519,74 @@ func findDuplicateHashes(m map[common.Hash]map[common.Hash][]byte) int {
 	return count
 }
 
+
+// Check the logs of a specific block (basically check how many there are and which ones)
+func investigateBlock(dir string, blockno int) {
+	var logFiles []LogFile
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		panic(fmt.Sprintf("Error reading dir %v", err))
+	}
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		filename := file.Name()
+		// Check if the filename matches the format "string-number-number.json"
+		if strings.HasSuffix(filename, ".json") {
+			parts := strings.Split(strings.TrimSuffix(filename, ".json"), "-")
+			if len(parts) == 3 {
+				var preorpost Prepost
+				if parts[0] == "predata" {
+					preorpost = PRE
+				} else if parts[0] == "postdata" {
+					preorpost = POST
+				} else {
+					panic(fmt.Sprintf("file is neither predata or postdata : %v", parts[0]))
+				}
+
+				blockno, err := strconv.Atoi(parts[1])
+				if err != nil {
+					panic(fmt.Sprintf("Blockno couldn't be read as an int: %v", parts[1]))
+				}
+				iteration, err := strconv.Atoi(parts[2])
+				if err != nil {
+					panic(fmt.Sprintf("Iteration couldn't be read as an int: %v", parts[2]))
+				}
+		
+				if blockno == 359791727 {
+					lf := LogFile{
+						FileName: filename,
+						Blockno: blockno,
+						Type: preorpost,
+						Count: iteration,
+					}
+					logFiles = append(logFiles, lf)
+				}
+			}
+		}
+	}
+	sort.Sort(ByBlock(logFiles))
+
+	// group them by block number in a 2d array
+	var groupedLogFiles [][]LogFile
+	currBlockno := 0
+		
+	for _, lf := range logFiles {
+		if lf.Blockno != currBlockno {
+			groupedLogFiles = append(groupedLogFiles, []LogFile{})
+			currBlockno = lf.Blockno
+		}
+		groupedLogFiles[len(groupedLogFiles)-1] = append(groupedLogFiles[len(groupedLogFiles)-1], lf)
+	}
+
+	if len(groupedLogFiles) != 1 {
+		panic("Too many log files")
+	}
+	
+	targetLogFiles := groupedLogFiles[0]
+	sort.Sort(ByTotalOrder(targetLogFiles))
+	log.Info("target log files", "sorted", targetLogFiles)	
+}
 

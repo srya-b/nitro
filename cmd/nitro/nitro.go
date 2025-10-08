@@ -142,11 +142,13 @@ func closeDb(db io.Closer, name string) {
 }
 
 func main() {
-	os.Exit(mainImpl())
+	//os.Exit(mainImpl())
+    os.Exit(worstCase())
 }
 
 // Returns the exit code
 func mainImpl() int {
+    return 1
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	defer cancelFunc()
 

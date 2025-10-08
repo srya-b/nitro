@@ -231,6 +231,16 @@ func GetEmptys(preObj *state.PreLog) map[common.Address]bool {
 	return created
 }
 
+func countNonEmptyJournals(j [][]state.LogJournalEntry) int {
+	c := 0
+	for _, jn := range j {
+		if len(jn) > 0 {
+			c++
+		}
+	}
+	return c
+}
+
 // if all the journals in this slice are len zero then ignore it (true)
 func ignoreJournal(j [][]state.LogJournalEntry) bool {
 	for _, jn := range j {

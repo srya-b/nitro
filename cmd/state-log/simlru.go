@@ -122,9 +122,9 @@ func (s *LRUSim) RunRecordBlockBytes(dir string) {
 	logFiles := getLogFilesSorted(dir)
 	bytesMissingPerBlock := []int{}
 	for j := 0; j < len(logFiles); j++ {
-		if j > 10000 {
-			break
-		}
+		//if j > 10000 {
+		//	break
+		//}
 		bytesForBlock := 0
 		for i := 0; i < len(logFiles[j]) - 1; i += 1 {
 			pre := logFiles[j][i]
@@ -171,7 +171,7 @@ func (s *LRUSim) RunRecordBlockBytes(dir string) {
 		bytesMissingPerBlock = append(bytesMissingPerBlock, bytesForBlock)
 	}
 	//log.Info("Bytes missing per block", "bytes", bytesMissingPerBlock)
-	BlockBytesHistogramWriteFile(bytesMissingPerBlock, 10000)
+	HistogramWriteFile(bytesMissingPerBlock, 10000, "block-histogram.csv")
 }
 
 func (s *LRUSim) PreLogAccesses(accesses map[Node]bool) {

@@ -75,8 +75,15 @@ def plot_histogram(file_path, save_path):
     plt.savefig(save_path)
     print(f"Histogram saved as '{save_path}'")
 
+import sys
+
 if __name__ == "__main__":
-    file_to_read = "histogram.csv"
-    file_to_save = "histogram.png"
+    if len(sys.argv)-1 == 0:
+        raise Exception("No filename included")
+    assert sys.argv[1] == "block-histogram" or sys.argv[1] == "parallel-histogram"
+    file_to_read = "/home/admin/surya/nitro/block-histogram.csv"
+    file_to_save = "/home/admin/surya/nitro/block-histogram.png"
+    file_to_read = "/home/admin/surya/nitro/{}.csv".format(sys.argv[1])
+    file_to_save = "/home/admin/surya/nitro/{}.png".format(sys.argv[1])
     plot_histogram(file_to_read, file_to_save)
 

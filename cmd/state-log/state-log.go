@@ -117,21 +117,21 @@ func ExploreTarget(target common.Address, preObj *state.PreLog, postObj *state.P
 	return false
 }
 
-var LOGDIR string = "/home/admin/statedb-data"
+var LOGDIR string = "/home/admin/statedb-data-old"
 
 func validationMain(logDir string) {
 	CheckPostDataLogsEverything(logDir)
 }
 
 func simMain(logDir string) {
-	s := NewLRUSim(1000)
+	s := NewLRUSim(5000)
 	//s.Run(logDir)
 	//s.RunRecordTxBytes(logDir)
 	s.RunRecordBlockBytes(logDir)
 }
 
 func concurrentMain(logDir string) {
-	ConcurrentRun(logDir)
+	ConcurrentRun2(logDir)
 }
 
 func main() {
@@ -140,10 +140,11 @@ func main() {
 	//validateMain(LOGDIR)
 	//simMain(LOGDIR)
 	concurrentMain(LOGDIR)
+	//investigateBlock(LOGDIR, 359791727)
 
 	//first, last := getDataBlockRange(LOGDIR)
 	//log.Info("Blocks collected", "first", first, "last", last)
-	//getNumTxsInNBlocks(5, LOGDIR)
+	//getNumTxsInNBlocks(10, LOGDIR)
 	return
 
 	// get all the pre and post data for block 0

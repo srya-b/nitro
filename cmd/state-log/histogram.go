@@ -67,13 +67,13 @@ func writeHistogramToFile(histogram map[int]int, filePath string, binWidth int) 
 	return writer.Flush()
 }
 
-func BlockBytesHistogramWriteFile(data []int, binWidth int) {
+func HistogramWriteFile(data []int, binWidth int, filePath string) {
 	// Sample input data.
 	//data := []int{
 	//	1234, 5678, 11000, 19500, 23000, 28000, 31000, 45000, 50000, 50001,
 	//	50005, 59999, 60000, 65000, 72000, 80000, 85000, 99999, 100000,
 	//}
-	filePath := "histogram.csv"
+	//filePath := "block-histogram.csv"
 
 	// Create the histogram.
 	histogram := createHistogram(data, binWidth)

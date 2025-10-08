@@ -34,6 +34,7 @@ type Node struct {
 
 var ExcludeAddr = map[common.Address]bool{
     common.HexToAddress("0x31EdEAA84822De25AF4ca790C187Ff1D45ef7504"): true,
+    common.HexToAddress("0x000000000000000000636F6e736F6c652e6c6f67"): true,
 }
 
 var ExcludeKey = map[common.Hash]bool{
@@ -311,7 +312,8 @@ func OrderedAccessesForPostLog(preObj *state.PreLog, postObj *state.PostLog) []N
     ejournals := state.JournalsToExported(preObj.Journals)
     vtrie := ValidatorTrieFromObj(postObj)
     //created := GetCreatedAccountsExported(ejournals)
-    created, _, _ := checkCreatesDeletes(preObj)
+    created, _, deleted := checkCreatesDeletes(preObj)
+    realCreated := mapSubtract(created, deleted)
 
     createsAdded := make(map[common.Address]bool)
     //keysAdded := map[state.KeyKey]bool
@@ -324,10 +326,15 @@ func OrderedAccessesForPostLog(preObj *state.PreLog, postObj *state.PostLog) []N
                 // we don't care about it in the postLog, whatever had to be logged
                 // was logged in the preLog
                 addr := logEntry.Account
+                _, eaddr := ExcludeAddr[addr]
+                if eaddr {
+                    continue
+                }
                 v, _ := vtrie.GetWithPath(addr.Bytes())
                 if v == nil {
                     // if this doesn't exist, it shouldn't also be in "created"
-                    _, ok := created[addr]
+                    //_, ok := created[addr]
+                    _, ok := realCreated[addr]
                     if ok {
                         log.Error("Didn't find a created account in the post Trie", "addr", addr)
                         panic("")

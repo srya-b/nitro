@@ -131,7 +131,13 @@ func simMain(logDir string) {
 }
 
 func concurrentMain(logDir string) {
-	ConcurrentRun2(logDir)
+	//SimInfiniteCores(logDir, 10000)
+	//SimInfiniteCoresSpeedup(logDir, 10000)
+	//SimFiniteCores(logDir, 4,  30000)
+	//SimFiniteCores(logDir, 8,  30000)
+	//SimFiniteCoresSpeedup(logDir, 4, 10000)
+	//SimFiniteCoresSpeedup(logDir, 8, 30000)
+	SimMultipleFiniteCores(logDir, []int{2, 4, 8}, 30000)
 }
 
 func main() {

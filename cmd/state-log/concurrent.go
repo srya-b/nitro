@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"sort"
+	"math"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
@@ -14,18 +16,134 @@ func ConcurrentRun(dir string) {
 	BlockGraphs(logPairs)
 }
 
-func ConcurrentRun2(dir string) {
+func SimInfiniteCores(dir string, limit int) {
 	logFiles := getLogFilesSorted(dir)
 	diameters := []int{}
 	for i, blockLogs := range logFiles {
-		if i > 10000 {
+		if i > limit {
 			break
 		}
-		d := BlockConflicts2(blockLogs)
-		diameters = append(diameters, d)
+		g := BlockGraph(blockLogs)
+		if g != nil {
+			diameters = append(diameters, g.Diameter())
+		}
 	}
-	HistogramWriteFile(diameters, 1, "parallel-histogram.csv")
+	HistogramWriteFile(diameters, 1, "infinite-cores-histogram.csv")
 }
+
+func SimInfiniteCoresSpeedup(dir string, limit int) {
+	logFiles := getLogFilesSorted(dir)
+	speedup := []float64{}
+	for i, blockLogs := range logFiles {
+		if i > limit {
+			break
+		}
+		
+		// The diameter of the dependency graph + 1 is the time for the parallel
+		// execution.  The number of vertices is the execution time sequentially.
+		g := BlockGraph(blockLogs)
+		if g != nil {
+			concurrent := g.Diameter() + 1
+			sequential := g.NumVertices()
+		 	percent := float64(100) * math.Abs((float64(concurrent)-float64(sequential))/float64(sequential))
+			speedup = append(speedup, percent)
+			//diameters = append(diameters, g.Diameter())
+		}
+	}
+	FloatHistogramWriteFile(speedup, 2.0, "infinite-cores-speedup-histogram.csv")
+}
+
+func SimFiniteCores(dir string, K int, limit int) {
+	logFiles := getLogFilesSorted(dir)
+	diameters := []int{}
+	for i, blockLogs := range logFiles {
+		if i > limit {
+			break
+		}
+		g := BlockGraph(blockLogs)
+		if g != nil {
+			g.FiniteCores(K)
+			diameters = append(diameters, g.Diameter()+1)
+		}
+	}
+	HistogramWriteFile(diameters, 1, fmt.Sprintf("finite-%d-cores-histogram.csv", K))
+}
+
+func SimFiniteCoresSpeedup(dir string, K int, limit int) {
+	logFiles := getLogFilesSorted(dir)
+	speedup := []float64{}
+	for i, blockLogs := range logFiles {
+		if i > limit {
+			break
+		}
+		
+		// The concurrent runtime is the diameter of the modified graph with artificial
+		// dependencies created.  The sequential time is the ceiling( # vertices / K )
+		g := BlockGraph(blockLogs)
+		if g != nil {
+			g.FiniteCores(K)
+			concurrent := g.Diameter() + 1
+			//sequential := math.Ceil(float64(g.NumVertices())/float64(K))
+			// NOTE: it doesn't make sense for the sequential to be (# vertices)/K because you
+			// Can't run any in parallel since you don't know whether there are conflicts
+			// DUHHH
+			sequential := g.NumVertices()
+		 	percent := float64(100) * math.Abs((float64(concurrent)-float64(sequential))/float64(sequential))
+			if percent >= float64(100) {
+				log.Debug("concurrency slowed it down?", "concurrent", concurrent, "sequential", sequential)
+				panic("")
+			}
+			speedup = append(speedup, percent)
+			//diameters = append(diameters, g.Diameter())
+		}
+	}
+	FloatHistogramWriteFile(speedup, 2.0, fmt.Sprintf("finite-%d-cores-speedup-histogram.csv", K))
+}
+
+func SimMultipleFiniteCores(dir string, krange []int, limit int) {
+	logFiles := getLogFilesSorted(dir)
+	blockGraphs := []*DependencyGraph{}
+
+	for i, blockLogs := range logFiles {
+		if i >= limit {
+			break
+		}
+		g := BlockGraph(blockLogs)
+		if g != nil {
+			blockGraphs = append(blockGraphs, g)
+		}
+	}
+
+	for _, K := range krange {
+		diameters := []int{}
+		speedup := []float64{}
+		for _, bgraph := range blockGraphs {
+			g := bgraph.Copy()
+			// just the diameters
+			g.FiniteCores(K)
+			concurrent := g.Diameter() + 1
+			diameters = append(diameters, concurrent)
+			// the speedup
+			//sequential := math.Ceil(float64(g.NumVertices())/float64(K))
+			// NOTE: it doesn't make sense for the sequential to be (# vertices)/K because you
+			// Can't run any in parallel since you don't know whether there are conflicts
+			// DUHHH
+			sequential := g.NumVertices()
+			percent := float64(100) * math.Abs((float64(concurrent)-float64(sequential))/float64(sequential))
+			if percent >= float64(100) {
+				log.Debug("concurrency slowed it down?", "concurrent", concurrent, "sequential", sequential)
+				panic("")
+			}
+			speedup = append(speedup, percent)
+		}
+		// do both of the graphs
+		HistogramWriteFile(diameters, 1, fmt.Sprintf("finite-%d-cores-histogram.csv", K))
+		FloatHistogramWriteFile(speedup, 2.0, fmt.Sprintf("finite-%d-cores-speedup-histogram.csv", K))
+	}
+	
+}
+
+
 
 var ConcurrentExcludeAddrs = map[common.Address]bool{
 	common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf"): true,
@@ -33,6 +151,7 @@ var ConcurrentExcludeAddrs = map[common.Address]bool{
 
 var Exclude = false
 
+// DEPRECATED BECAUSE IT DOESN'T ACTUALLY WORK.
 func BlockGraphs(pairs [][]LogPair) {
 	// loop over the blocks
 	for _, logPairs := range pairs {
@@ -286,7 +405,7 @@ func BlockConflicts(blockLogs []LogFile) ([]int, [][]int, map[state.KeyKey]int) 
 	return nil, nil, nil
 }
 
-func BlockConflicts2(blockLogs []LogFile) int {
+func BlockGraph(blockLogs []LogFile) *DependencyGraph {
 	txWrites := make(map[state.KeyKey][]int)
 	txReads := make(map[state.KeyKey][]int)
 	conflicts := []Conflict{}
@@ -354,12 +473,14 @@ func BlockConflicts2(blockLogs []LogFile) int {
 		for _, cn := range conflicts {
 			graph.AddEdge(cn.tx1, cn.tx2)
 		}
-		log.Info("Block", "number", blockLogs[0].Blockno, "txid", txidx, "conflicts", len(conflicts), "graph", graph.Diameter())
+		log.Info("Block", "number", blockLogs[0].Blockno, "txid", txidx, "conflicts", len(conflicts), "graph", graph.Diameter(), "vertices", graph.NumVertices())
 		//graph.Display()
-		return graph.Diameter()
+		//return graph.Diameter()
+		return &graph
 	}
-	return 0
+	return nil
 }
+
 
 // KeyValuePair is a helper struct to hold the string key and its integer value.
 type ConcurrentKeyValuePair struct {
@@ -385,5 +506,3 @@ func (l ConcurrentKeyValueList) Swap(i, j int) {
 func (l ConcurrentKeyValueList) Less(i, j int) bool {
 	return l[i].Value > l[j].Value
 }
-
-

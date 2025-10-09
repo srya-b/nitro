@@ -32,6 +32,34 @@ func NewDependencyGraph(n int, blockNumber int) DependencyGraph {
 	}
 }
 
+// Copy returns a deep copy of the DependencyGraph.
+func (g DependencyGraph) Copy() DependencyGraph {
+    // 1. Copy the top-level struct fields
+    newGraph := DependencyGraph{
+        BlockNo: g.BlockNo,
+        Adj:     make(map[int][]int, len(g.Adj)),
+    }
+
+    // 2. Perform a deep copy of the adjacency list (Adj map)
+    for vertex, neighbors := range g.Adj {
+        // Create a new slice for the neighbors to prevent sharing memory.
+        newNeighbors := make([]int, len(neighbors))
+        // Copy the content of the slice
+        copy(newNeighbors, neighbors) 
+        
+        // Add the new vertex and its copied neighbor slice to the new graph's map
+        newGraph.Adj[vertex] = newNeighbors
+    }
+
+    return newGraph
+}
+
+// NumVertices returns the total count of vertices in the graph.
+func (g DependencyGraph) NumVertices() int {
+    // The number of vertices is equal to the number of entries in the adjacency map.
+	return len(g.Adj)
+}
+
 // MaxPath calculates the longest path in the graph, assuming the graph is acyclic (a tree or forest).
 // It now calls the updated Diameter function.
 func (g DependencyGraph) MaxPath() int {
@@ -150,6 +178,55 @@ func (g DependencyGraph) bfs(source int) map[int]int {
     }
     
     return distances
+}
+
+// FiniteCores adds edges to the graph based on the core dependency rule.
+// An edge is added between i and j (undirected) whenever i + K <= j.
+func (g DependencyGraph) FiniteCores(K int) {
+    // K must be non-negative
+    if K < 0 {
+        fmt.Println("Warning: K must be non-negative for FiniteCores logic. No edges added.")
+        return
+    }
+
+    // Get the highest vertex index
+    maxVertex := -1
+    for v := range g.Adj {
+        if v > maxVertex {
+            maxVertex = v
+        }
+    }
+
+    // Since vertices start at 0 and go up to maxVertex
+    // The total number of vertices N is maxVertex + 1
+    N := maxVertex + 1
+    if N <= K {
+        // If there are too few nodes, the condition i + K <= j may never be met.
+        // For example, if N=5 and K=5: max i is 4. 4 + 5 <= j is impossible since max j is 4.
+        return
+    }
+
+    // Iterate through all unique pairs (i, j) where i < j
+    for i := 0; i < N; i++ {
+        for j := i + 1; j < N; j++ {
+            // Apply the dependency rule: i + K <= j
+            if i + K <= j {
+                // Since the graph is undirected, we add the edge in both directions.
+                
+                // Add j to i's list (if not already present)
+                if !contains(g.Adj[i], j) {
+                    g.Adj[i] = append(g.Adj[i], j)
+                    sort.Ints(g.Adj[i])
+                }
+
+                // Add i to j's list (if not already present)
+                if !contains(g.Adj[j], i) {
+                    g.Adj[j] = append(g.Adj[j], i)
+                    sort.Ints(g.Adj[j])
+                }
+            }
+        }
+    }
 }
 
 // --- Placeholder/Previous Functions (Included for a Runnable Program) ---

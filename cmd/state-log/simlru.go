@@ -118,13 +118,16 @@ func (s *LRUSim) RunRecordTxBytes(dir string) {
 	}
 }
 
-func (s *LRUSim) RunRecordBlockBytes(dir string) {
+func (s *LRUSim) RunRecordBlockBytes(dir string, limit int) {
 	logFiles := getLogFilesSorted(dir)
 	bytesMissingPerBlock := []int{}
 	for j := 0; j < len(logFiles); j++ {
 		//if j > 10000 {
 		//	break
 		//}
+		if j >= limit {
+			break
+		}
 		bytesForBlock := 0
 		for i := 0; i < len(logFiles[j]) - 1; i += 1 {
 			pre := logFiles[j][i]

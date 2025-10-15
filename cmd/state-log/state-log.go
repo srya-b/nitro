@@ -127,17 +127,21 @@ func simMain(logDir string) {
 	s := NewLRUSim(5000)
 	//s.Run(logDir)
 	//s.RunRecordTxBytes(logDir)
-	s.RunRecordBlockBytes(logDir)
+	s.RunRecordBlockBytes(logDir, 10000)
 }
 
 func concurrentMain(logDir string) {
 	//SimInfiniteCores(logDir, 10000)
 	//SimInfiniteCoresSpeedup(logDir, 10000)
+	SimInfiniteCoresFromFile(logDir, "/home/admin/surya/nitro/block-access-100000.data")
 	//SimFiniteCores(logDir, 4,  30000)
 	//SimFiniteCores(logDir, 8,  30000)
-	//SimFiniteCoresSpeedup(logDir, 4, 10000)
+	//SimFiniteCoresSpeedup(logDir, 4, 1000)
 	//SimFiniteCoresSpeedup(logDir, 8, 30000)
-	SimMultipleFiniteCores(logDir, []int{2, 4, 8}, 30000)
+	//SimMultipleFiniteCores(logDir, []int{2, 4, 8, 16}, 10000)
+	//SimMultipleFiniteCoresFromFile(logDir, "/home/admin/surya/nitro/block-access-100000.data", []int{2, 4, 8, 16})
+	//CheckSameGraphFileAndLive(logDir, "/home/admin/surya/nitro/block-access.data", 1000)
+	//CompareSpecificBlock(logDir, "/home/admin/surya/nitro/block-access.data", 1000, 359791948)
 }
 
 func main() {
@@ -147,6 +151,9 @@ func main() {
 	//simMain(LOGDIR)
 	concurrentMain(LOGDIR)
 	//investigateBlock(LOGDIR, 359791727)
+	//WriteBlockAccessesToFile(LOGDIR, 100000, "/home/admin/surya/nitro/block-access-100000.data")
+	//ValidateBlockAccessesFile(LOGDIR, 30000, "/home/admin/surya/nitro/block-access.data")
+	//CheckSameBlocksWritten(LOGDIR, 1000)
 
 	//first, last := getDataBlockRange(LOGDIR)
 	//log.Info("Blocks collected", "first", first, "last", last)

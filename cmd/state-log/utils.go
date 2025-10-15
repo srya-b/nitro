@@ -53,6 +53,26 @@ func mapToSet[K comparable, V any](m map[K]V) map[K]bool {
 	return out
 }
 
+func mapDiff[K comparable, V any](m1 map[K]V, m2 map[K]V) []K {
+	out := []K{}
+	if len(m1) > len(m2) {
+		for k := range m1 {
+			_, ok := m2[k]
+			if !ok {
+				out = append(out, k)
+			}
+		}
+	} else {
+		for k := range m2 {
+			_, ok := m1[k]
+			if !ok {
+				out = append(out, k)
+			}
+		}
+	}
+	return out
+}
+
 func listToSet[K comparable](l []K) map[K]bool {
 	out := make(map[K]bool)
 	for _, e := range l {

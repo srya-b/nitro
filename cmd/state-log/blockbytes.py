@@ -1,7 +1,81 @@
 import csv
 import matplotlib.pyplot as plt
 
-def plot_histogram(file_path, save_path):
+def plot_block_bytes_histogram(name, file_path, save_path):
+    """
+    Reads histogram data from a CSV file and plots it.
+    The plot is saved to the specified save_path.
+    """
+    bins = []
+    counts = []
+    
+    with open(file_path, 'r', newline='') as csvfile:
+        reader = csv.reader(csvfile)
+        # Skip the header row
+        try:
+            next(reader) 
+        except StopIteration:
+            print("The CSV file is empty or has no header.")
+            return
+
+        for row in reader:
+            try:
+                # Assuming the first column is the bin start and the second is the count.
+                bin_start = int(row[0])
+                count = int(row[1])
+                bins.append(bin_start)
+                counts.append(count)
+            except (ValueError, IndexError) as e:
+                print(f"Error parsing row: {row}. Skipping. Error: {e}")
+                continue
+
+    if not bins:
+        print("No data found to plot.")
+        return
+
+    # Filter out bins at or above 1,000,000
+    filtered_bins = []
+    filtered_counts = []
+    for i in range(len(bins)):
+        if bins[i] < 500000:
+            filtered_bins.append(bins[i])
+            filtered_counts.append(counts[i])
+
+    # If the filtered data is empty, there's nothing to plot.
+    if not filtered_bins:
+        print("No data found to plot after filtering.")
+        return
+
+    # Determine bin width from the sorted bins. Assumes uniform bin width.
+    bin_width = 10000
+    if len(filtered_bins) > 1:
+        filtered_bins.sort()
+        bin_width = filtered_bins[1] - filtered_bins[0]
+
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+    plt.bar(filtered_bins, filtered_counts, width=bin_width, align='edge', color='skyblue', edgecolor='blue')
+
+    plt.xlabel('Bytes Missing')
+    plt.ylabel('# Blocks')
+    plt.title(name)
+    
+    # Set the tick interval to show every 10th tick on the x-axis
+    tick_interval = 5
+    
+    # Generate labels for all filtered bins
+    labels = [f'[{b} - {b+bin_width-1}]' for b in filtered_bins]
+
+    # Show only a subset of the ticks to avoid overcrowding the x-axis
+    plt.xticks(filtered_bins[::tick_interval], labels[::tick_interval], rotation=45, ha='right')
+    
+    plt.tight_layout()
+    
+    # Save the plot to a file
+    plt.savefig(save_path)
+    print(f"Histogram saved as '{save_path}'")
+
+def plot_histogram(name, file_path, save_path):
     """
     Reads histogram data from a CSV file and plots it.
     The plot is saved to the specified save_path.
@@ -58,7 +132,7 @@ def plot_histogram(file_path, save_path):
 
     plt.xlabel('Bin Range')
     plt.ylabel('Frequency')
-    plt.title('Histogram of Data')
+    plt.title(name)
     
     # Set the tick interval to show every 10th tick on the x-axis
     tick_interval = 5
@@ -75,7 +149,7 @@ def plot_histogram(file_path, save_path):
     plt.savefig(save_path)
     print(f"Histogram saved as '{save_path}'")
 
-def plot_float_histogram(file_path, save_path, bin_width):
+def plot_float_histogram(name, file_path, save_path, bin_width):
     """
     Reads histogram data from a CSV file and plots it (for FLOAT64 data).
     The plot is saved to the specified save_path.
@@ -107,6 +181,22 @@ def plot_float_histogram(file_path, save_path, bin_width):
         print("No float data found to plot.")
         return
 
+    # Filter out bins at or above 1,000,000
+    filtered_bins = []
+    filtered_counts = []
+    for i in range(len(bins)):
+        if bins[i] < 20.0:
+            filtered_bins.append(bins[i])
+            filtered_counts.append(counts[i])
+
+    # If the filtered data is empty, there's nothing to plot.
+    if not filtered_bins:
+        print("No data found to plot after filtering.")
+        return
+    
+    bins = filtered_bins
+    counts = filtered_counts
+
     ## Determine bin width from the sorted bins. Assumes uniform bin width.
     #bin_width = 1.0 # Default bin width for floats
     #if len(bins) > 1:
@@ -118,9 +208,9 @@ def plot_float_histogram(file_path, save_path, bin_width):
     plt.figure(figsize=(10, 6))
     plt.bar(bins, counts, width=bin_width, align='edge', color='lightcoral', edgecolor='darkred')
 
-    plt.xlabel('Bin Range (Float64)')
+    plt.xlabel('# Vertices / Diameter')
     plt.ylabel('Frequency')
-    plt.title('Histogram of Float64 Data')
+    plt.title(name)
     
     # Set the tick interval (show every 5th tick for typical float data density)
     tick_interval = 1
@@ -139,6 +229,89 @@ def plot_float_histogram(file_path, save_path, bin_width):
     print(f"Float64 Histogram saved as '{save_path}'")
 
 
+# --- Integer Histogram Plotting (Line Graph) ---
+
+def plot_line_histogram(name, file_path, save_path):
+    """
+    Reads histogram data from a CSV file and plots it (for INT data) as a line graph.
+    The plot is saved to the specified save_path.
+    """
+    bins = []
+    counts = []
+    
+    with open(file_path, 'r', newline='') as csvfile:
+        reader = csv.reader(csvfile)
+        # Skip the header row
+        try:
+            next(reader) 
+        except StopIteration:
+            print("The CSV file is empty or has no header.")
+            return
+
+        for row in reader:
+            try:
+                bin_start = int(row[0])
+                count = int(row[1])
+                bins.append(bin_start)
+                counts.append(count)
+            except (ValueError, IndexError) as e:
+                print(f"Error parsing row: {row}. Skipping. Error: {e}")
+                continue
+
+    if not bins:
+        print("No data found to plot.")
+        return
+
+    # Filter out bins at or above 1,000,000 as requested
+    filtered_bins = []
+    filtered_counts = []
+    for i in range(len(bins)):
+        if bins[i] < 500000:
+            filtered_bins.append(bins[i])
+            filtered_counts.append(counts[i])
+
+    # If the filtered data is empty, there's nothing to plot.
+    if not filtered_bins:
+        print("No data found to plot after filtering.")
+        return
+
+    # Determine bin width from the sorted bins. Assumes uniform bin width.
+    bin_width = 10000
+    if len(filtered_bins) > 1:
+        filtered_bins.sort()
+        bin_width = filtered_bins[1] - filtered_bins[0]
+        
+    # For a line graph, we typically plot against the center of the bin.
+    # We will use the bin start for simplicity, but add markers.
+
+    # Create the plot
+    plt.figure(figsize=(10, 6))
+    # Use plt.plot for a line graph, with 'o-' for a line and markers
+    plt.plot(filtered_bins, filtered_counts, marker='o', linestyle='-', color='darkgreen', linewidth=2)
+
+    plt.xlabel('Bytes Missing (binned)')
+    plt.ylabel('# Blocks')
+    plt.title(name)
+    
+    # Set the tick interval to show every 10th tick on the x-axis
+    tick_interval = 5
+    
+    # Generate labels for all filtered bins
+    labels = [f'{b}' for b in filtered_bins]
+
+    # Show only a subset of the ticks to avoid overcrowding the x-axis
+    plt.xticks(filtered_bins[::tick_interval], labels[::tick_interval], rotation=45, ha='right')
+    
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    
+    # Save the plot to a file
+    plt.savefig(save_path)
+    print(f"Integer Histogram (Line Graph) saved as '{save_path}'")
+
+
+
+
 import sys
 
 if __name__ == "__main__":
@@ -152,7 +325,10 @@ if __name__ == "__main__":
     file_to_save = "/home/admin/surya/nitro/{}.png".format(sys.argv[1])
     if "speedup" in sys.argv[1]:
         bin_width = float(sys.argv[2])
-        plot_float_histogram(file_to_read, file_to_save, bin_width)
+        plot_float_histogram(sys.argv[1], file_to_read, file_to_save, bin_width)
+    elif "block" in sys.argv[1]:
+        plot_line_histogram(sys.argv[1], file_to_read, file_to_save)
+        #plot_block_bytes_histogram(sys.argv[1], file_to_read, file_to_save)
     else:
-        plot_histogram(file_to_read, file_to_save)
+        plot_histogram(sys.argv[1], file_to_read, file_to_save)
 

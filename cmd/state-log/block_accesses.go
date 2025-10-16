@@ -1,15 +1,17 @@
 package main
 
 import (
+    "fmt"
     "reflect"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/core/state"
 )
 
-func WriteBlockAccessesToFile(dir string, limit int, outfn string) {
+func WriteBlockAccessesToFile(dir string, limit int, outpath string) {
     logFiles := getLogFilesSorted(dir)
     prevBlock := 0
+    blocksWritten := 0
     for i, blockLogs := range logFiles {
         if i >= limit {
             break
@@ -19,6 +21,7 @@ func WriteBlockAccessesToFile(dir string, limit int, outfn string) {
             blockno := blockLogs[0].Blockno
             prevBlock = blockno
             StoreBlockAccesses(blockno, txAccesses)
+            blocksWritten++
         } else {
             if len(blockLogs) > 0 {
                 blockno := blockLogs[0].Blockno
@@ -32,6 +35,7 @@ func WriteBlockAccessesToFile(dir string, limit int, outfn string) {
              }
         }
     }
+    outfn := fmt.Sprintf("%s/block-access-%d.data", outpath, blocksWritten)
     WriteBlockAccesses(outfn)
 }
 

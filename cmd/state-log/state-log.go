@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	_ "encoding/json"
 	_ "fmt"
 	_ "io/ioutil"
@@ -133,7 +134,7 @@ func simMain(logDir string) {
 func concurrentMain(logDir string) {
 	//SimInfiniteCores(logDir, 10000)
 	//SimInfiniteCoresSpeedup(logDir, 10000)
-	SimInfiniteCoresFromFile(logDir, "/home/admin/surya/nitro/block-access-100000.data")
+	//SimInfiniteCoresFromFile(logDir, "/home/admin/surya/nitro/block-access-100000.data")
 	//SimFiniteCores(logDir, 4,  30000)
 	//SimFiniteCores(logDir, 8,  30000)
 	//SimFiniteCoresSpeedup(logDir, 4, 1000)
@@ -142,6 +143,7 @@ func concurrentMain(logDir string) {
 	//SimMultipleFiniteCoresFromFile(logDir, "/home/admin/surya/nitro/block-access-100000.data", []int{2, 4, 8, 16})
 	//CheckSameGraphFileAndLive(logDir, "/home/admin/surya/nitro/block-access.data", 1000)
 	//CompareSpecificBlock(logDir, "/home/admin/surya/nitro/block-access.data", 1000, 359791948)
+	SimMultipleGroupBlocks(logDir, "/home/admin/surya/nitro/block-access-100000.data", []int{2, 4, 8, 16}, 2)
 }
 
 func main() {
@@ -152,6 +154,7 @@ func main() {
 	concurrentMain(LOGDIR)
 	//investigateBlock(LOGDIR, 359791727)
 	//WriteBlockAccessesToFile(LOGDIR, 100000, "/home/admin/surya/nitro/block-access-100000.data")
+	//WriteBlockAccessesToFile(LOGDIR, math.MaxInt, "/home/admin/surya/nitro")
 	//ValidateBlockAccessesFile(LOGDIR, 30000, "/home/admin/surya/nitro/block-access.data")
 	//CheckSameBlocksWritten(LOGDIR, 1000)
 

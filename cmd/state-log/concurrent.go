@@ -45,10 +45,8 @@ func SimInfiniteCoresSpeedup(dir string, limit int) {
 		if g != nil {
 			concurrent := g.Diameter() + 1
 			sequential := g.NumVertices()
-		 	//percent := float64(100) * math.Abs((float64(concurrent)-float64(sequential))/float64(sequential))
 			percent := float64(sequential)/float64(concurrent)
 			speedup = append(speedup, percent)
-			//diameters = append(diameters, g.Diameter())
 		}
 	}
 	FloatHistogramWriteFile(speedup, 0.25, "infinite-cores-speedup-histogram.csv")
@@ -62,13 +60,7 @@ func SimInfiniteCoresFromFile(dir string, accessFile string) {
 	}
 	speedups := []float64{}
 	diameters := []int{}
-	//for i := 0; i < len(accessLists); i++ {
 	for block, accesses := range accessLists {
-		//accesses, ok := accessLists[firstBlock+i]
-		//if !ok {
-		//	log.Debug("Skipping block", "n", firstBlock+i)
-		//	continue
-		//}
 		g := BlockGraphFromFile(block, accesses)
 		if g == nil {
 			panic("")
@@ -113,19 +105,9 @@ func SimFiniteCoresSpeedup(dir string, K int, limit int) {
 		if g != nil {
 			g.FiniteCores(K)
 			concurrent := g.Diameter() + 1
-			//sequential := math.Ceil(float64(g.NumVertices())/float64(K))
-			// NOTE: it doesn't make sense for the sequential to be (# vertices)/K because you
-			// Can't run any in parallel since you don't know whether there are conflicts
-			// DUHHH
 			sequential := g.NumVertices()
-		 	//percent := float64(100) * math.Abs((float64(concurrent)-float64(sequential))/float64(sequential))
 			percent := float64(sequential)/float64(concurrent)
-			//if percent >= float64(100) {
-			//	log.Debug("concurrency slowed it down?", "concurrent", concurrent, "sequential", sequential)
-			//	panic("")
-			//}
 			speedup = append(speedup, percent)
-			//diameters = append(diameters, g.Diameter())
 		}
 	}
 	FloatHistogramWriteFile(speedup, 0.25, fmt.Sprintf("finite-%d-cores-speedup-histogram.csv", K))
@@ -150,13 +132,10 @@ func SimMultipleFiniteCores(dir string, krange []int, limit int) {
 		speedup := []float64{}
 		for _, bgraph := range blockGraphs {
 			g := bgraph.Copy()
-			// just the diameters
 			g.FiniteCores(K)
 			concurrent := g.Diameter() + 1
 			diameters = append(diameters, concurrent)
-			// the speedup
 			sequential := g.NumVertices()
-			//percent := float64(100) * math.Abs((float64(concurrent)-float64(sequential))/float64(sequential))
 			percent := float64(sequential)/float64(concurrent)
 			speedup = append(speedup, percent)
 		}
@@ -168,7 +147,6 @@ func SimMultipleFiniteCores(dir string, krange []int, limit int) {
 }
 
 func SimMultipleFiniteCoresFromFile(dir string, accessFile string, krange []int) {
-	//logFiles := getLogFilesSorted(dir)
 	accessLists, _, err := ReadBlockAccesses(accessFile)
 	if err != nil {
 		log.Error("Couldn't read accesses from file", "file", accessFile)
@@ -176,29 +154,31 @@ func SimMultipleFiniteCoresFromFile(dir string, accessFile string, krange []int)
 	}
 	blockGraphs := []*DependencyGraph{}
 
-	//for i := 0; i < len(accessLists); i++ {
+	diameters := []int{}
+	speedups := []float64{}
 	for block, accesses := range accessLists {
-		//accesses, ok := accessLists[firstBlock+i]
-		//if !ok {
-		//	log.Debug("Skipping block", "n", firstBlock+i)
-		//	continue
-		//}
 		g := BlockGraphFromFile(block, accesses)
 		blockGraphs = append(blockGraphs, g)
+		concurrent := g.Diameter() + 1
+		sequential := g.NumVertices()
+		percent := float64(sequential)/float64(concurrent)
+		speedups = append(speedups, percent)
+		diameters = append(diameters, concurrent)
 	}
+
+	HistogramWriteFile(diameters, 1, "infinite-cores-histogram.csv")
+	FloatHistogramWriteFile(speedups, 0.25, "infinite-cores-speedup-historam.csv")
+
 
 	for _, K := range krange {
 		diameters := []int{}
 		speedup := []float64{}
 		for _, bgraph := range blockGraphs {
 			g := bgraph.Copy()
-			// just the diameters
 			g.FiniteCores(K)
 			concurrent := g.Diameter() + 1
 			diameters = append(diameters, concurrent)
-			// the speedup
 			sequential := g.NumVertices()
-			//percent := float64(100) * math.Abs((float64(concurrent)-float64(sequential))/float64(sequential))
 			percent := float64(sequential)/float64(concurrent)
 			speedup = append(speedup, percent)
 		}
@@ -209,143 +189,57 @@ func SimMultipleFiniteCoresFromFile(dir string, accessFile string, krange []int)
 	
 }
 
-func CompareSpecificBlock(dir string, accessFile string, limit int, target int) {
-	log.Info("Check target block", "n", target)
-	logFiles := getLogFilesSorted(dir)
-	var targetLiveGraph *DependencyGraph
-	lastBlockNo := 0
-	for i, blockLogs := range logFiles {
-		if i >= limit {
-			break
-		}
-		g, b, ok := BlockGraphSpecificBlock(blockLogs, target)
-		if !ok {
-			continue
-		}
-		
-		if g != nil {
-			//blockGraphs = append(blockGraphs, g)
-			targetLiveGraph = g
-			lastBlockNo = b
-		} 
-		break
-	}
-	
-	accessLists, firstBlock, err := ReadBlockAccesses(accessFile)
+func SimMultipleGroupBlocks(dir string, accessFile string, krange []int, grouping int) {
+	accessLists, _, err := ReadBlockAccesses(accessFile)
 	if err != nil {
 		log.Error("Couldn't read accesses from file", "file", accessFile)
 		panic(err)
 	}
-	
-	var targetFileGraph *DependencyGraph
 
-	for i := 0; i < len(accessLists); i++ {
-		if firstBlock+i == target {
-			accesses, ok := accessLists[firstBlock+i]
-			if !ok {
-				log.Debug("Skipping block", "n", firstBlock+i)
-				panic("Skipping target block")
-			}
-			g := BlockGraphFromFile(firstBlock+i, accesses)
-			targetFileGraph = g
-			if firstBlock+i == lastBlockNo {
-				break
-			}
-		}
-	}
-	
-	if targetLiveGraph == nil {
-		log.Error("Live gave no graph for block")
-	}
-	if targetFileGraph == nil {
-		log.Error("File gave no graph for block")
-	}
-	if targetLiveGraph == nil || targetFileGraph == nil {
-		panic("nil graph")
-	}
-
-	sameVertices, selfNotOther, otherNotSelf := targetLiveGraph.HasSameVertices(targetFileGraph)
-	areEqual, edgesInSelfNotOther := targetLiveGraph.IsEqual(targetFileGraph)
-	if !areEqual {
-		log.Error("Graphs aren't equal", "diff", edgesInSelfNotOther)
-	} 
-	if !sameVertices {
-		log.Error("Different vertices", "selfNotOther", selfNotOther, "otherNotSelf", otherNotSelf)
-	}
-	if !sameVertices || !areEqual {
+	if len(accessLists) < grouping || len(accessLists) % grouping != 0  {
 		panic("")
 	}
+
+	diameters := []int{}
+	speedups := []float64{}
+	newMap := groupMap(accessLists, grouping)
+
+	blockGraphs := []*DependencyGraph{}
+	for block, accesses := range newMap {
+		g := BlockGraphFromFile(block, accesses)
+		blockGraphs = append(blockGraphs, g)
+		concurrent := g.Diameter() + 1
+		sequential := g.NumVertices()
+		percent := float64(sequential)/float64(concurrent)
+		speedups = append(speedups, percent)
+		diameters = append(diameters, concurrent)
+	}
+	HistogramWriteFile(diameters, 1, fmt.Sprintf("infinite-cores-%ds-histogram.csv", grouping))
+	FloatHistogramWriteFile(speedups, 0.25, fmt.Sprintf("infinite-cores-speedup-%ds-historam.csv", grouping))
+
+	for _, K := range krange {
+		diameters := []int{}
+		speedup := []float64{}
+		for _, bgraph := range blockGraphs {
+			g := bgraph.Copy()
+			g.FiniteCores(K)
+			concurrent := g.Diameter() + 1
+			diameters = append(diameters, concurrent)
+			sequential := g.NumVertices()
+			percent := float64(sequential)/float64(concurrent)
+			speedup = append(speedup, percent)
+		}
+		// do both of the graphs
+		HistogramWriteFile(diameters, 1, fmt.Sprintf("finite-%d-cores-%ds-histogram.csv", K, grouping))
+		FloatHistogramWriteFile(speedup, 0.25, fmt.Sprintf("finite-%d-cores-speedup-%ds-histogram.csv", K, grouping))
+	}
 }
-
-func CheckSameGraphFileAndLive(dir string, accessFile string, limit int) {
-	logFiles := getLogFilesSorted(dir)
-	liveBlockGraphs := make(map[int]*DependencyGraph)
-	lastBlockNo := 0
-	for i, blockLogs := range logFiles {
-		if i >= limit {
-			break
-		}
-		g, b := BlockGraph(blockLogs)
-		if g != nil {
-			//blockGraphs = append(blockGraphs, g)
-			liveBlockGraphs[b] = g
-			lastBlockNo = b
-		}
-	}
-
-	accessLists, firstBlock, err := ReadBlockAccesses(accessFile)
-	if err != nil {
-		log.Error("Couldn't read accesses from file", "file", accessFile)
-		panic(err)
-	}
-	//fileBlockGraphs := []*DependencyGraph{}
-	fileBlockGraphs := make(map[int]*DependencyGraph)
-
-	for i := 0; i < len(accessLists); i++ {
-		accesses, ok := accessLists[firstBlock+i]
-		if !ok {
-			log.Debug("Skipping block", "n", firstBlock+i)
-			continue
-		}
-		g := BlockGraphFromFile(firstBlock+i, accesses)
-		//fileBlockGraphs = append(fileBlockGraphs, g)
-		fileBlockGraphs[firstBlock+i] = g
-		if firstBlock+i == lastBlockNo {
-			break
-		}
-	}
-
-	if len(liveBlockGraphs) != len(fileBlockGraphs) {
-		log.Error("Different number of graphs", "live", len(liveBlockGraphs), "file", len(fileBlockGraphs))
-	}
-
-	for b, liveG := range liveBlockGraphs {
-		fileG, exists := fileBlockGraphs[b]
-		if !exists {
-			log.Error("live blockgraph exists but file doesn't", "block", b)
-		}
-
-		// check they are the same
-		sameVertices, selfNotOther, otherNotSelf := liveG.HasSameVertices(fileG)
-		areEqual, edgesInSelfNotOther := liveG.IsEqual(fileG)
-		if !areEqual {
-			log.Error("Graphs aren't equal", "block", b, "diff", edgesInSelfNotOther)
-		} 
-		if !sameVertices {
-			log.Error("Different vertices", "block", b, "selfNotOther", selfNotOther, "otherNotSelf", otherNotSelf)
-		}
-		if !sameVertices || !areEqual {
-			panic("")
-		}
-	}	
-}
-
 
 var ConcurrentExcludeAddrs = map[common.Address]bool{
 	common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf"): true,
 }
 
-var Exclude = false
+var Exclude = true
 
 // DEPRECATED BECAUSE IT DOESN'T ACTUALLY WORK.
 func BlockGraphs(pairs [][]LogPair) {
@@ -602,11 +496,8 @@ func BlockConflicts(blockLogs []LogFile) ([]int, [][]int, map[state.KeyKey]int) 
 }
 
 func BlockGraph(blockLogs []LogFile) (*DependencyGraph, int) {
-	//txWrites := make(map[state.KeyKey][]int)
-	//txReads := make(map[state.KeyKey][]int)
 	txWrites := make(map[state.KeyKey]map[int]bool)
 	txReads := make(map[state.KeyKey]map[int]bool)
-	//conflicts := []Conflict{}
 	conflicts := make(map[Conflict]bool)
 	txidx := 0
 	blockToReturn := 0
@@ -711,7 +602,6 @@ func BlockGraph(blockLogs []LogFile) (*DependencyGraph, int) {
 }
 
 func BlockGraphFromFile(blockno int, accesses [][]state.KeyKey) *DependencyGraph {
-	//conflicts := []Conflict{}
 	conflicts := make(map[Conflict]bool)
 	txWrites := make(map[state.KeyKey]map[int]bool)
 	txid := 0
@@ -729,7 +619,6 @@ func BlockGraphFromFile(blockno int, accesses [][]state.KeyKey) *DependencyGraph
 			if exists {
 				for wtx, _ := range writeTxs {
 					if txid != wtx {
-						//conflicts = append(conflicts, Conflict{i, wtx})
 						conflicts[Conflict{txid, wtx}] = true
 					}
 				}
@@ -746,7 +635,6 @@ func BlockGraphFromFile(blockno int, accesses [][]state.KeyKey) *DependencyGraph
 			if exists {
 				for wtx, _ := range writeTxs {
 					if txid != wtx {
-						//conflicts = append(conflicts, Conflict{i, wtx})
 						conflicts[Conflict{txid, wtx}] = true
 					}
 				}
@@ -764,7 +652,6 @@ func BlockGraphFromFile(blockno int, accesses [][]state.KeyKey) *DependencyGraph
 	if len(conflicts) > 0 {
 		log.Info("Conflicts", "l", conflicts)
 	}
-	//for _, cn := range conflicts {
 	for cn, _ := range conflicts {
 		err := graph.AddEdge(cn.tx1, cn.tx2)
 		if err != nil {
@@ -802,10 +689,141 @@ func (l ConcurrentKeyValueList) Less(i, j int) bool {
 	return l[i].Value > l[j].Value
 }
 
-func BlockGraphSpecificBlock(blockLogs []LogFile, target int) (*DependencyGraph, int, bool) {
+// ---- testing functions -------
+
+func CompareSpecificBlock(dir string, accessFile string, limit int, target int) {
+	log.Info("Check target block", "n", target)
+	logFiles := getLogFilesSorted(dir)
+	var targetLiveGraph *DependencyGraph
+	lastBlockNo := 0
+	for i, blockLogs := range logFiles {
+		if i >= limit {
+			break
+		}
+		g, b, ok := BlockGraphTargetBlock(blockLogs, target)
+		if !ok {
+			continue
+		}
+		
+		if g != nil {
+			targetLiveGraph = g
+			lastBlockNo = b
+		} 
+		break
+	}
+	
+	accessLists, firstBlock, err := ReadBlockAccesses(accessFile)
+	if err != nil {
+		log.Error("Couldn't read accesses from file", "file", accessFile)
+		panic(err)
+	}
+	
+	var targetFileGraph *DependencyGraph
+
+	for i := 0; i < len(accessLists); i++ {
+		if firstBlock+i == target {
+			accesses, ok := accessLists[firstBlock+i]
+			if !ok {
+				log.Debug("Skipping block", "n", firstBlock+i)
+				panic("Skipping target block")
+			}
+			g := BlockGraphFromFile(firstBlock+i, accesses)
+			targetFileGraph = g
+			if firstBlock+i == lastBlockNo {
+				break
+			}
+		}
+	}
+	
+	if targetLiveGraph == nil {
+		log.Error("Live gave no graph for block")
+	}
+	if targetFileGraph == nil {
+		log.Error("File gave no graph for block")
+	}
+	if targetLiveGraph == nil || targetFileGraph == nil {
+		panic("nil graph")
+	}
+
+	sameVertices, selfNotOther, otherNotSelf := targetLiveGraph.HasSameVertices(targetFileGraph)
+	areEqual, edgesInSelfNotOther := targetLiveGraph.IsEqual(targetFileGraph)
+	if !areEqual {
+		log.Error("Graphs aren't equal", "diff", edgesInSelfNotOther)
+	} 
+	if !sameVertices {
+		log.Error("Different vertices", "selfNotOther", selfNotOther, "otherNotSelf", otherNotSelf)
+	}
+	if !sameVertices || !areEqual {
+		panic("")
+	}
+}
+
+func CheckSameGraphFileAndLive(dir string, accessFile string, limit int) {
+	logFiles := getLogFilesSorted(dir)
+	liveBlockGraphs := make(map[int]*DependencyGraph)
+	lastBlockNo := 0
+	for i, blockLogs := range logFiles {
+		if i >= limit {
+			break
+		}
+		g, b := BlockGraph(blockLogs)
+		if g != nil {
+			//blockGraphs = append(blockGraphs, g)
+			liveBlockGraphs[b] = g
+			lastBlockNo = b
+		}
+	}
+
+	accessLists, firstBlock, err := ReadBlockAccesses(accessFile)
+	if err != nil {
+		log.Error("Couldn't read accesses from file", "file", accessFile)
+		panic(err)
+	}
+	//fileBlockGraphs := []*DependencyGraph{}
+	fileBlockGraphs := make(map[int]*DependencyGraph)
+
+	for i := 0; i < len(accessLists); i++ {
+		accesses, ok := accessLists[firstBlock+i]
+		if !ok {
+			log.Debug("Skipping block", "n", firstBlock+i)
+			continue
+		}
+		g := BlockGraphFromFile(firstBlock+i, accesses)
+		//fileBlockGraphs = append(fileBlockGraphs, g)
+		fileBlockGraphs[firstBlock+i] = g
+		if firstBlock+i == lastBlockNo {
+			break
+		}
+	}
+
+	if len(liveBlockGraphs) != len(fileBlockGraphs) {
+		log.Error("Different number of graphs", "live", len(liveBlockGraphs), "file", len(fileBlockGraphs))
+	}
+
+	for b, liveG := range liveBlockGraphs {
+		fileG, exists := fileBlockGraphs[b]
+		if !exists {
+			log.Error("live blockgraph exists but file doesn't", "block", b)
+		}
+
+		// check they are the same
+		sameVertices, selfNotOther, otherNotSelf := liveG.HasSameVertices(fileG)
+		areEqual, edgesInSelfNotOther := liveG.IsEqual(fileG)
+		if !areEqual {
+			log.Error("Graphs aren't equal", "block", b, "diff", edgesInSelfNotOther)
+		} 
+		if !sameVertices {
+			log.Error("Different vertices", "block", b, "selfNotOther", selfNotOther, "otherNotSelf", otherNotSelf)
+		}
+		if !sameVertices || !areEqual {
+			panic("")
+		}
+	}	
+}
+
+func BlockGraphTargetBlock(blockLogs []LogFile, target int) (*DependencyGraph, int, bool) {
 	txWrites := make(map[state.KeyKey]map[int]bool)
 	txReads := make(map[state.KeyKey]map[int]bool)
-	//conflicts := []Conflict{}
 	conflicts := make(map[Conflict]bool)
 	txidx := 0
 	blockToReturn := 0
@@ -822,9 +840,7 @@ func BlockGraphSpecificBlock(blockLogs []LogFile, target int) (*DependencyGraph,
 				continue
 			}
 
-			//log.Info("blockno", "b", pre.Blockno)
 			if pre.Blockno != target {
-				//log.Info("Not target")
 				return nil, blockToReturn, false
 			}		
 			log.Info("Blocklogs", "l", len(blockLogs))
@@ -838,7 +854,6 @@ func BlockGraphSpecificBlock(blockLogs []LogFile, target int) (*DependencyGraph,
 			}
 			// each journal in preObj.Journals is taken to be a single message/tx
 			ejournals := state.JournalsToExported(preObj.Journals)
-			//log.Info("Journals", "j", len(ejournals))
 			for _, journal := range ejournals {
 				// log the things
 				reads := GetReadButNotWrite(journal)
@@ -851,7 +866,6 @@ func BlockGraphSpecificBlock(blockLogs []LogFile, target int) (*DependencyGraph,
 					if !ok {
 						txReads[kk] = make(map[int]bool)
 					}
-					//txReads[kk] = append(txReads[kk], txidx)
 					txReads[kk][txidx] = true
 					
 					// if this read is of a slot that was written before then this is a conflict
@@ -859,7 +873,6 @@ func BlockGraphSpecificBlock(blockLogs []LogFile, target int) (*DependencyGraph,
 					if exists {
 						for wtx, _ := range writeTxs {
 							if txidx != wtx {
-								//conflicts = append(conflicts, Conflict{txidx, wtx})	
 								conflicts[Conflict{txidx, wtx}] = true
 							}
 						}
@@ -879,15 +892,12 @@ func BlockGraphSpecificBlock(blockLogs []LogFile, target int) (*DependencyGraph,
 					if ok {
 						for wtx, _ := range writeTxs {
 							if txidx != wtx {
-								//conflicts = append(conflicts, Conflict{txidx, wtx})
 								conflicts[Conflict{txidx, wtx}] = true
 							}
 						}
 					} else {
-						//txWrites[kk] = []int{}
 						txWrites[kk] = make(map[int]bool)
 					}
-					//txWrites[kk] = append(txWrites[kk], txidx)
 					txWrites[kk][txidx] = true
 				}
 				txidx++

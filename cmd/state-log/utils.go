@@ -118,6 +118,53 @@ func arbMapElement[K comparable, V any](m map[K]V) (K, V) {
 	return zeroK, zeroV
 }
 
+// Function to perform the grouping
+func groupMap(originalMap map[int][][]state.KeyKey, grouping int) map[int][][]state.KeyKey {
+	if grouping == 1 {
+		return originalMap
+	}
+    newMap := make(map[int][][]state.KeyKey)
+
+    // 1. Get all keys from the original map
+    var keys []int
+    for k := range originalMap {
+        keys = append(keys, k)
+    }
+
+    // 2. The keys must be sorted to ensure the grouping is consistent and deterministic.
+    // If you don't sort, the grouping will be based on arbitrary iteration order.
+    // We assume an arbitrary grouping means an arbitrary but *consistent* choice of keys.
+    // The following example uses the natural integer sort order for the keys.
+    // You would use "sort.Ints(keys)" here if this were real Go code.
+    // For this demonstration, we'll assume the keys slice is now logically sorted.
+
+    // 3. Iterate through the keys and group them
+    for i := 0; i < len(keys); i += grouping {
+        // The key for the new map will be the first key in the current group
+        newKey := keys[i] 
+        
+        // The value for the new map starts with the value of the newKey
+        newValue := originalMap[newKey]
+
+        // Iterate over the rest of the keys in the current group (from the second key)
+        // This loop runs 'grouping - 1' times.
+        for j := 1; j < grouping; j++ {
+            // Check to make sure we don't go out of bounds (though your constraint
+            // ensures this won't happen: len(keys) % grouping == 0)
+            if i+j < len(keys) {
+                keyToAppend := keys[i+j]
+                
+                // Append the []KeyKey slice from the current key to the value of the new key
+                newValue = append(newValue, originalMap[keyToAppend]...)
+            }
+        }
+        
+        // Set the consolidated value in the new map
+        newMap[newKey] = newValue
+    }
+
+    return newMap
+}
 
 // Hashing addresses and keys utils
 

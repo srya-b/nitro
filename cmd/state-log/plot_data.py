@@ -171,7 +171,7 @@ def plot_multiple_line_histogram(base_filenames, save_path, data_type, bin_width
     title_suffix = f'Float64 Data (Bin Width: {bin_width})' if data_type == float else 'Integer Data'
 
     for fn in base_filenames:
-        file_path = f"/home/admin/surya/nitro/from_file_100000/{fn}.csv"
+        file_path = f"/home/admin/surya/nitro/from_file_2s_100000_exclude/{fn}.csv"
         bins = []
         counts = []
         

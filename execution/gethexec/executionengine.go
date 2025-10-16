@@ -504,7 +504,7 @@ func (s *ExecutionEngine) SequenceTransactions(header *arbostypes.L1IncomingMess
 	log.Info("SequenceTransactions")
 	return s.sequencerWrapper(func() (*types.Block, error) {
 		hooks.TxErrors = nil
-		return s.sequenceTransactionsWithBlockMutex(header, hooks, timeboostedTxs)
+		return s.sequenceTransactionsWithBlockMutexCustom(header, hooks, timeboostedTxs)
 //func (s *ExecutionEngine) SequenceTransactions(header *arbostypes.L1IncomingMessageHeader, txes types.Transactions, hooks *arbos.SequencingHooks, timeboostedTxs map[common.Hash]struct{}) (*types.Block, error) {
 	})
 }
@@ -550,7 +550,6 @@ func writeAndLog(pprof, trace *bytes.Buffer) {
 
 func (s *ExecutionEngine) sequenceTransactionsWithBlockMutex(header *arbostypes.L1IncomingMessageHeader, hooks *arbos.SequencingHooks, timeboostedTxs map[common.Hash]struct{}) (*types.Block, error) {
 //func (s *ExecutionEngine) sequenceTransactionsWithBlockMutex(header *arbostypes.L1IncomingMessageHeader, txes types.Transactions, hooks *arbos.SequencingHooks, timeboostedTxs map[common.Hash]struct{}) (*types.Block, error) {
-	log.Info("sequenceTransactionsWithBlockMutex")
 	lastBlockHeader, err := s.getCurrentHeader()
 	if err != nil {
 		return nil, err
@@ -564,56 +563,33 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutex(header *arbostypes.
 	if lastBlock == nil {
 		return nil, errors.New("can't find block for current header")
 	}
-
-	flag := true
 	var witness *stateless.Witness
-	if flag {
-		if s.bc.GetVMConfig().StatelessSelfValidation {
-			witness, err = stateless.NewWitness(lastBlock.Header(), s.bc)
-			if err != nil {
-				return nil, err
-			}
+	if s.bc.GetVMConfig().StatelessSelfValidation {
+		witness, err = stateless.NewWitness(lastBlock.Header(), s.bc)
+		if err != nil {
+			return nil, err
 		}
-		statedb.StartPrefetcher("Sequencer", witness)
-		defer statedb.StopPrefetcher()
-	} else {
-		statedb.StopPrefetcher()
 	}
-
+	statedb.StartPrefetcher("Sequencer", witness)
+	defer statedb.StopPrefetcher()
 	delayedMessagesRead := lastBlockHeader.Nonce.Uint64()
-	statedb.StartLogger()
 
 	startTime := time.Now()
-	block, receipts, err := arbos.ProduceBlockAdvancedCustom(
+	block, receipts, err := arbos.ProduceBlockAdvanced(
 		header,
-		txes,
 		delayedMessagesRead,
 		lastBlockHeader,
 		statedb,
 		s.bc,
-		s.bc.Config(),
 		hooks,
 		false,
-		core.MessageCommitMode,
+		core.NewMessageCommitContext(s.wasmTargets),
 	)
 	if err != nil {
 		return nil, err
 	}
-	log.Info("[sequencer transactions] total ops", "n", statedb.TotalOps)
-	log.Info("Ops", "n", len(statedb.OpsCalled()))
-	//log.Info("Length", "n", len(statedb.PathsTaken))
-	//log.Info("Length", "n", len(staetdb.accounts))
-	//log.Info("Length", "n", len(statedb.logs))
-	//for i:=0; i < statedb.TotalOps; i++ {
-	//	log.Info("Op", "", statedb.OpsCalled[i])
-	//	log.Info("Hashes", "", statedb.PathsTaken[i])
-	//}
-
 	blockCalcTime := time.Since(startTime)
-	blockExecutionTimer.Update(blockCalcTime)
-	if len(hooks.TxErrors) != len(txes) {
-		return nil, fmt.Errorf("unexpected number of error results: %v vs number of txes %v", len(hooks.TxErrors), len(txes))
-	}
+	blockExecutionTimer.Update(blockCalcTime.Nanoseconds())
 
 	if len(receipts) == 0 {
 		return nil, nil
@@ -630,12 +606,12 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutex(header *arbostypes.
 		return nil, nil
 	}
 
-	msg, err := MessageFromTxes(header, txes, hooks.TxErrors)
+	msg, err := MessageFromTxes(header, hooks)
 	if err != nil {
 		return nil, err
 	}
 
-	pos, err := s.BlockNumberToMessageIndex(lastBlockHeader.Number.Uint64() + 1)
+	msgIdx, err := s.BlockNumberToMessageIndex(lastBlockHeader.Number.Uint64() + 1)
 	if err != nil {
 		return nil, err
 	}
@@ -650,7 +626,7 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutex(header *arbostypes.
 	}
 
 	blockMetadata := s.blockMetadataFromBlock(block, timeboostedTxs)
-	err = s.consensus.WriteMessageFromSequencer(pos, msgWithMeta, *msgResult, blockMetadata)
+	_, err = s.consensus.WriteMessageFromSequencer(msgIdx, msgWithMeta, *msgResult, blockMetadata).Await(s.GetContext())
 	if err != nil {
 		return nil, err
 	}
@@ -661,7 +637,7 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutex(header *arbostypes.
 	if err != nil {
 		return nil, err
 	}
-	s.cacheL1PriceDataOfMsg(pos, receipts, block, false)
+	s.cacheL1PriceDataOfMsg(msgIdx, block, false)
 
 	return block, nil
 }
@@ -784,21 +760,15 @@ func (s *ExecutionEngine) createBlockFromNextMessage(msg *arbostypes.MessageWith
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	flag := true
-	if flag {
-		var witness *stateless.Witness
-		if s.bc.GetVMConfig().StatelessSelfValidation {
-			witness, err = stateless.NewWitness(currentBlock.Header(), s.bc)
-			if err != nil {
-				return nil, nil, nil, err
-			}
+	var witness *stateless.Witness
+	if s.bc.GetVMConfig().StatelessSelfValidation {
+		witness, err = stateless.NewWitness(currentBlock.Header(), s.bc)
+		if err != nil {
+			return nil, nil, nil, err
 		}
-		statedb.StartPrefetcher("TransactionStreamer", witness)
-		defer statedb.StopPrefetcher()
-	} else {
-		statedb.StopPrefetcher()
 	}
+	statedb.StartPrefetcher("TransactionStreamer", witness)
+	defer statedb.StopPrefetcher()
 
 	var runCtx *core.MessageRunContext
 	if isMsgForPrefetch {

@@ -24,7 +24,7 @@ import (
 	"github.com/offchainlabs/nitro/util/sharedmetrics"
 )
 
-func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbostypes.L1IncomingMessageHeader, txes types.Transactions, hooks *arbos.SequencingHooks, timeboostedTxs map[common.Hash]struct{}) (*types.Block, error) {
+func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbostypes.L1IncomingMessageHeader, hooks *arbos.SequencingHooks, timeboostedTxs map[common.Hash]struct{}) (*types.Block, error) {
 	log.Info("sequenceTransactionsWithBlockMutex")
 	lastBlockHeader, err := s.getCurrentHeader()
 	if err != nil {
@@ -65,13 +65,13 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbos
             s.loggerFailStop = true
 	    	//statedb.logState = false
 	    	statedb.StopLogger()
+            panic("")
 	    }
     }
 
 	startTime := time.Now()
 	block, receipts, err := arbos.ProduceBlockAdvancedCustom(
 		header,
-		txes,
 		delayedMessagesRead,
 		lastBlockHeader,
 		statedb,
@@ -84,10 +84,7 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbos
 		return nil, err
 	}
 	blockCalcTime := time.Since(startTime)
-	blockExecutionTimer.Update(blockCalcTime)
-	if len(hooks.TxErrors) != len(txes) {
-		return nil, fmt.Errorf("unexpected number of error results: %v vs number of txes %v", len(hooks.TxErrors), len(txes))
-	}
+	blockExecutionTimer.Update(blockCalcTime.Nanoseconds())
 
 	if len(receipts) == 0 {
 		return nil, nil
@@ -104,7 +101,7 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutexCustom(header *arbos
 		return nil, nil
 	}
 
-	msg, err := MessageFromTxes(header, txes, hooks.TxErrors)
+	msg, err := MessageFromTxes(header, hooks)
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +419,7 @@ func (s *ExecutionEngine) digestMessageWithBlockMutexCustom(msgIdxToDigest arbut
 		return nil, err
 	}
 	blockCalcTime := time.Since(startTime)
-	blockExecutionTimer.Update(blockCalcTime)
+	blockExecutionTimer.Update(blockCalcTime.Nanoseconds())
 
 	err = s.appendBlock(block, statedb, receipts, blockCalcTime)
 	if err != nil {

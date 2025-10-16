@@ -162,6 +162,7 @@ func main() {
 	//log.Info("Blocks collected", "first", first, "last", last)
 	//getNumTxsInNBlocks(10, LOGDIR)
 	return
+	WriteBlockAccessesToFile(LOGDIR, math.MaxInt, "/home/admin/surya/nitro")
 
 	// get all the pre and post data for block 0
 	//one := big.NewInt(1)

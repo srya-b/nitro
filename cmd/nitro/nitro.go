@@ -142,7 +142,9 @@ func closeDb(db io.Closer, name string) {
 }
 
 func main() {
-	os.Exit(mainImpl())
+	//os.Exit(mainImpl())
+    //os.Exit(worstCase())
+    os.Exit(geminiMain())
 }
 
 // Returns the exit code

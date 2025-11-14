@@ -185,6 +185,9 @@ func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, 
 	}
 }
 
+type IntHistogram map[int]int
+type FloatHistogram map[float64]int
+
 func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool) int {
 	log.Info("Executing in batches.")
 
@@ -318,16 +321,15 @@ func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool) in
 	return 0
 }
 
-
 // identical to the regular version but this just returns the histogram rather than doing any plotting
-func SimMultipleFiniteCoresBatched(blockTraces []*BlockTrace, krange []int, debug bool, filterFlags AccessType) (map[int]map[int]int, map[int]map[float64]int) {
+func SimMultipleFiniteCoresBatched(blockTraces []*BlockTrace, krange []int, debug bool, filterFlags AccessType) (map[int]IntHistogram, map[int]FloatHistogram) {
 	blockGraphs := make([]*WeightedVertexGraph, 0, len(blockTraces))
 	diameters := []int{}
 	speedups := []float64{}
 
 	// finite cores for each number of cores K in krange
-	kDiameterMap := make(map[int]map[int]int)
-	kSpeedupMap := make(map[int]map[float64]int)
+	kDiameterMap := make(map[int]IntHistogram)
+	kSpeedupMap := make(map[int]FloatHistogram)
 
 	totalGas := []int{}
 	gasSpeedups := []float64{}

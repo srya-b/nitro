@@ -107,6 +107,43 @@ func FilterAccesses(txTrace *TxTrace, filterFlags AccessType) ([]KeyAccess, []Ke
 	return filteredWrites, filteredReads
 }
 
+func FilterAccessesAndByAddress(txTrace *TxTrace, filterFlags AccessType, targets map[common.Address]bool) ([]KeyAccess, []KeyAccess) {
+	var filteredWrites []KeyAccess
+	var filteredReads []KeyAccess
+
+	// Return empty slices if the trace is nil
+	if txTrace == nil {
+		return filteredWrites, filteredReads
+	}
+
+	// Helper function to process a list of accesses
+	// It appends matching items from 'source' to 'dest' and returns the new 'dest' slice.
+	appendFiltered := func(dest []KeyAccess, source []KeyAccess) []KeyAccess {
+		for _, access := range source {
+			// 1. Look up the bit flag for the access's string Type
+			if flag, ok := accessTypeMap[access.Type]; ok {
+				
+				// 2. Use a bitwise AND to check if the flag is set in the filter
+				if (filterFlags & flag) != 0 {
+
+					// 3. Now check for the extra address filers
+					_, skip := targets[access.Pair.Address]
+					if !skip {
+						dest = append(dest, access)
+					}
+				}
+			}
+		}
+		return dest
+	}
+
+	// Process both writes and reads for this single transaction
+	filteredWrites = appendFiltered(filteredWrites, txTrace.WriteAccesses)
+	filteredReads = appendFiltered(filteredReads, txTrace.ReadAccesses)
+
+	return filteredWrites, filteredReads
+}
+
 var stringToFlagMap = map[string]AccessType{
 	"opcode":      AccessOpcode,
 	"balance":     AccessBalance,

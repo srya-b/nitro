@@ -206,3 +206,22 @@ func FloatHistogramWriteFile(floatData []float64, floatBinWidth float64, floatFi
 	}
 }
 
+// mergeHistograms takes a master histogram and a chunk histogram,
+// and adds the counts from the chunk into the master.
+// The master histogram is modified in place.
+func mergeHistograms(master map[int]int, chunk map[int]int) {
+	for binStart, count := range chunk {
+		// If the binStart key doesn't exist in master,
+		// Go's default is 0, so (0 + count) works perfectly.
+		master[binStart] += count
+	}
+}
+
+// mergeFloatHistograms takes a master float64 histogram and a chunk histogram,
+// and adds the counts from the chunk into the master.
+// The master histogram is modified in place.
+func mergeFloatHistograms(master map[float64]int, chunk map[float64]int) {
+	for binStart, count := range chunk {
+		master[binStart] += count
+	}
+}

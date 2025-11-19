@@ -266,6 +266,8 @@ type PathInfo struct {
 	weight uint64 // Sum of vertex weights in the path
 }
 
+// Rather than giving the path with the largest weight, this returns the weight on the 
+// longest path in the graph (longest by number of edges)
 func (g WeightedVertexGraph) MaxWeightedVertexPath() uint64 {
 	N := g.NumVertices()
 	if N == 0 {
@@ -422,6 +424,64 @@ func (g WeightedVertexGraph) Dependency(vertex int) ([]int, error) {
 	if !ok { return nil, fmt.Errorf("vertex %d does not exist in the graph", vertex) }
 	result := make([]int, len(neighbors)); copy(result, neighbors)
 	return result, nil
+}
+
+// HeaviestPath finds the path with the maximum possible sum of vertex weights.
+// This function prioritizes weight *only*, unlike MaxWeightedVertexPath
+// which prioritizes edge-count (length) first.
+func (g WeightedVertexGraph) HeaviestPath() uint64 {
+	N := g.NumVertices()
+	if N == 0 {
+		return 0
+	}
+
+	// memo stores the calculated heaviest path weight *starting* from a given vertex.
+	memo := make(map[int]uint64)
+	var maxOverallWeight uint64 = 0
+
+	// We must check the heaviest path starting from *every* vertex,
+	// because the globally heaviest path might be in a subgraph
+	// not reachable from the start of another, lighter-but-longer path.
+	for vertex := range g.Adj {
+		pathWeight := g.dfsHeaviestPath(vertex, memo)
+		if pathWeight > maxOverallWeight {
+			maxOverallWeight = pathWeight
+		}
+	}
+
+	return maxOverallWeight
+}
+
+// dfsHeaviestPath is a memoized DFS helper for HeaviestPath.
+// It returns the weight of the heaviest path *starting* from vertex 'u'.
+func (g WeightedVertexGraph) dfsHeaviestPath(u int, memo map[int]uint64) uint64 {
+	// 1. Check memoization table
+	// If we've already calculated the heaviest path from 'u', return it.
+	if weight, ok := memo[u]; ok {
+		return weight
+	}
+
+	// 2. Find the max weight of any path starting from a neighbor
+	var maxNeighborWeight uint64 = 0
+	for _, v := range g.Adj[u] {
+		// Recursively find the heaviest path starting from neighbor 'v'
+		neighborWeight := g.dfsHeaviestPath(v, memo)
+
+		// Find the neighbor that leads to the heaviest possible path
+		if neighborWeight > maxNeighborWeight {
+			maxNeighborWeight = neighborWeight
+		}
+	}
+
+	// 3. The heaviest path from 'u' is its own weight plus the heaviest
+	//    path that starts from one of its neighbors.
+	//    If 'u' is a leaf node (no neighbors), maxNeighborWeight will be 0,
+	//    and the path is just its own weight.
+	myPathWeight := g.VertexWeights[u] + maxNeighborWeight
+
+	// 4. Store in memo and return
+	memo[u] = myPathWeight
+	return myPathWeight
 }
 
 // Example main, renamed to avoid conflict

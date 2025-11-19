@@ -34,6 +34,32 @@ func createHistogram(data []int, binWidth int) map[int]int {
 	return histogram
 }
 
+func writeSpeedupsToFile(blockSpeedups []*BlockSpeedup, filePath string) error {
+	file, err := os.Create(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	// Write header for the CSV file.
+	_, err = writer.WriteString("BlockNumber,Cores,Sequential,Concurrent\n")	
+	if err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
+
+	for _, bs := range blockSpeedups {
+		for k, concurrent := range bs.Equivalent {
+			line := fmt.Sprintf("%d,%d,%d,%d\n", bs.BlockNumber, k, bs.Sequential, concurrent)
+			_, err := writer.WriteString(line)
+			if err != nil {
+				return fmt.Errorf("failed to write line: %w", err)
+			}
+		}
+	}
+	return writer.Flush()
+}
+
 // writeHistogramToFile writes the histogram data to a specified file path in a simple CSV format.
 func writeHistogramToFile(histogram map[int]int, filePath string, binWidth int) error {
 	file, err := os.Create(filePath)
@@ -111,6 +137,7 @@ func createFloatHistogram(data []float64, binWidth float64) map[float64]int {
 		// Calculate the bin index: value / binWidth
 		// Use math.Floor to ensure the bin start is consistently calculated.
 		binStart := math.Floor(value/binWidth) * binWidth
+		//fmt.Printf("[%d] stats. value: %v, binWidth %v, binStart %v\n", i, value, binWidth, binStart)
 		histogram[binStart]++
 	}
 	return histogram

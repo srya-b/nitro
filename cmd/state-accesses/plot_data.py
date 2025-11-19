@@ -171,7 +171,7 @@ def plot_multiple_line_histogram(base_filenames, save_path, data_type, bin_width
     title_suffix = f'Float64 Data (Bin Width: {bin_width})' if data_type == float else 'Integer Data'
 
     for fn in base_filenames:
-        file_path = f"/home/admin/surya/parallel-data/concurrent-100-opcode,code/{fn}.csv"
+        file_path = f"/home/admin/surya/parallel-data/concurrent-1000-opcode,code/{fn}.csv"
         bins = []
         counts = []
         
@@ -209,7 +209,7 @@ def plot_multiple_line_histogram(base_filenames, save_path, data_type, bin_width
             filtered_bins = []
             filtered_counts = []
             for i in range(len(bins)):
-                if bins[i] < 1000000:
+                if bins[i] < 10:
                     filtered_bins.append(bins[i])
                     filtered_counts.append(counts[i])
             
@@ -223,6 +223,17 @@ def plot_multiple_line_histogram(base_filenames, save_path, data_type, bin_width
             # Generate labels for x-axis (Int data uses inclusive labels)
             labels = [f'[{b} - {b+bin_width-1}]' for b in current_bins]
         else: # float data
+            filtered_bins = []
+            filtered_counts = []
+            for i in range(len(bins)):
+                if bins[i] < 16.5:
+                    filtered_bins.append(bins[i])
+                    filtered_counts.append(counts[i])
+            if not filtered_bins:
+                printf(f"No data found in {file_path} after integer filtering. Skipping.")
+                continue
+            current_bins = filtered_bins
+            current_counts = filtered_counts
             # Generate labels for x-axis (Float data uses exclusive upper bounds)
             labels = [f'[{b:.2f} - {b+bin_width:.2f})' for b in current_bins] 
         
@@ -236,6 +247,10 @@ def plot_multiple_line_histogram(base_filenames, save_path, data_type, bin_width
     if not last_bins:
         print("No valid data was plotted.")
         return
+
+    plt.axvline(x=2, linestyle="dotted")
+    plt.axvline(x=4, linestyle="dotted")
+    plt.axvline(x=8, linestyle="dotted")
 
     # --- Final Plot Customization ---
     plt.xlabel(x_label)
@@ -275,7 +290,7 @@ if __name__ == "__main__":
             raise ValueError("In 'multiple-line' mode, you must provide an output filename and at least one input filename.")
 
         # 1. Extract the output file path
-        save_path = '/home/admin/surya/parallel-data/concurrent-100-opcode,code/' + sys.argv[2]
+        save_path = '/home/admin/surya/parallel-data/concurrent-1000-opcode,code/' + sys.argv[2]
         
         # 2. Arguments containing filenames and optional bin_width start from sys.argv[3]
         input_args = sys.argv[3:]

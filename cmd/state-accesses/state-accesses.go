@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"flag"
+	"math/big"
 	_"strconv"
 
 	"github.com/ethereum/go-ethereum/log"
@@ -14,8 +15,8 @@ import (
 )
 
 // ---------- additional parameters ----------
-var accessFlags = AccessOpcode | AccessCode | AccessArb
-var krange = []int{4}
+var accessFlags = AccessOpcode | AccessCode
+var krange = []int{2, 4, 8, 16}
 // -------------------------------------------
 
 func main() {
@@ -29,6 +30,7 @@ func mainImpl() int {
 	debugPtr := flag.Bool("debug", false, "Enable debug mode.")
 	limitPtr := flag.Int("limit", math.MaxInt, "Limit the number of items to process (default: no limit).")
 	listConflictsPtr := flag.Bool("list-conflicts", false, "List accesses that conflict across ALL transactions in the block.")
+	speedupPtr := flag.String("speedups", "", "Write the speedups per block, per core number, to a csv file")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] <data_dir> <output_dir>\n", os.Args[0])
@@ -86,6 +88,10 @@ func mainImpl() int {
 
 	log.Info("Block access data", "first", sortedFiles[0].num, "last", sortedFiles[len(sortedFiles)-1].num)
 
+	if *speedupPtr != "" {
+		return mainSpeedups(sortedFiles, destdir, *speedupPtr, batches, debug, listConflicts)
+	}
+
 	if batches > 1 {
 		return mainBatched(sortedFiles, destdir, batches, debug, listConflicts)
 	}	
@@ -123,75 +129,246 @@ func mainImpl() int {
 	
 	log.Info("Outdir", "outdir", outdir)
 
-	SimMultipleFiniteCores(blockTraces, actuallyUsed, krange, outdir, accessFlags, debug, listConflicts)
+	blockSpeedups := SimMultipleFiniteCores(blockTraces, actuallyUsed, krange, outdir, accessFlags, debug, listConflicts)
 
+	speedupsFn := fmt.Sprintf("%s/block-speedups.csv", outdir)
+	log.Info("Writing speedups to file", "file", speedupsFn, "num speedups", len(blockSpeedups))
+	if err := writeSpeedupsToFile(blockSpeedups, speedupsFn); err != nil {
+		fmt.Printf("Error writing block speedups to file: %v", err)
+		return 1
+	}	
 	return 0
 }
 
-func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, outdir string, filterFlags AccessType, debug bool, listConflicts bool) {
-	blockGraphs := make([]*WeightedVertexGraph, 0, len(blockTraces))
-	diameters := []int{}
-	speedups := []float64{}
+type BlockSpeedup struct {
+	BlockNumber	 	*big.Int
+	Sequential	 	uint64
+	Equivalent		map[int]uint64
+}
 
-	totalGas := []int{}
-	gasSpeedups := []float64{}
+func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, outdir string, filterFlags AccessType, debug bool, listConflicts bool) []*BlockSpeedup {
+	blockGraphs := make([]*WeightedVertexGraph, 0, len(blockTraces))
+	//diameters := []int{}
+	//speedups := []float64{}
+	//totalGas := []uint64{}
+	//equivalentGas := []uint64{}
+	gasSpeedups := make([]float64, 0, len(blockTraces))
+	
+	blockSpeedups := make([]*BlockSpeedup, 0, len(blockTraces))
 	for _, trace := range blockTraces {
 		g := BlockGraph(trace, filterFlags, listConflicts)
 		blockGraphs = append(blockGraphs, g)
-		concurrent := g.Diameter() + 1
-		sequential := g.NumVertices()
-		percent := float64(sequential)/float64(concurrent)
-		speedups = append(speedups, percent)
-		diameters = append(diameters, concurrent)
-		
-		sequentialGas := int(g.TotalVertexWeight())
-		concurrentGas := int(g.MaxWeightedVertexPath())
-		percent = float64(sequentialGas)/float64(concurrentGas)
-		totalGas = append(totalGas, sequentialGas)
-		gasSpeedups = append(gasSpeedups, percent)
+		//concurrent := g.Diameter() + 1
+		//sequential := g.NumVertices()
+		//concurrent := g.MaxWeightedVertexPath()
+		concurrent := g.HeaviestPath()
+		sequential := g.TotalVertexWeight()
+		//percent := float64(sequential)/float64(concurrent)
+		//speedups = append(speedups, percent)
+		//diameters = append(diameters, concurrent)
+		//totalGas = append(totalGas, sequential)
+		//equivalentGas = append(equivalentGas, concurrent)
+		var speedup float64
+		if sequential == 0 {
+			speedup = float64(0)
+		} else {
+			speedup = float64(sequential)/float64(concurrent)
+		}
+		gasSpeedups = append(gasSpeedups, speedup)
+		blockSpeedup := &BlockSpeedup{
+			BlockNumber:	trace.BlockNumber,
+			Sequential:		sequential,
+			Equivalent:		map[int]uint64{
+								-1: concurrent,
+							},
+		}	
+		blockSpeedups = append(blockSpeedups, blockSpeedup)
 	}	
 
 
 	if !debug {
-		HistogramWriteFile(diameters, 1, fmt.Sprintf("%s/infinite-cores-histogram.csv", outdir))
-		FloatHistogramWriteFile(speedups, 0.25, fmt.Sprintf("%s/infinite-cores-speedup-historam.csv", outdir))
+		//HistogramWriteFile(diameters, 1, fmt.Sprintf("%s/infinite-cores-histogram.csv", outdir))
+		FloatHistogramWriteFile(gasSpeedups, 0.25, fmt.Sprintf("%s/infinite-cores-speedup-histogram.csv", outdir))
 	}
 
 
 	// finite cores for each number of cores K in krange
 	for _, K := range krange {
-		diameters := []int{}
-		speedups := []float64{}
-
-		totalGas := []int{}
+		//totalGas := []uint64{}
+		//equivalentGas := []uint64{}
 		gasSpeedups := []float64{}
-		for _, bgraph := range blockGraphs {
+		for i, bgraph := range blockGraphs {
 			g := bgraph.Copy()
 			g.FiniteCores(K)
-			concurrent := g.Diameter() + 1
-			sequential := g.NumVertices()
-			percent := float64(sequential)/float64(concurrent)
-			speedups = append(speedups, percent)
-			diameters = append(diameters, concurrent)
-			
-			sequentialGas := int(g.TotalVertexWeight())
-			concurrentGas := int(g.MaxWeightedVertexPath())
-			percent = float64(sequentialGas)/float64(concurrentGas)
-			totalGas = append(totalGas, sequentialGas)
-			gasSpeedups = append(gasSpeedups, percent)
+			//concurrent := g.MaxWeightedVertexPath()
+			concurrent := g.HeaviestPath()
+			sequential := g.TotalVertexWeight()
+			//totalGas = append(totalGas, sequential)
+			//equivalentGas = append(equivalentGas, concurrent)
+			var speedup float64
+			if sequential == 0 {
+				speedup = float64(0)
+			} else {
+				speedup = float64(sequential)/float64(concurrent)
+			}
+			gasSpeedups = append(gasSpeedups, speedup)
+			blockSpeedups[i].Equivalent[K] = concurrent
 			if debug {
-				log.Info("Speedup", "K", K, "sequential", sequentialGas, "concurrentGas", concurrentGas, "speedup", percent)
+				log.Info("Speedup", "K", K, "sequential", sequential, "concurrentGas", concurrent, "speedup", speedup)
 			}
 		}
 		
 		if !debug {
-			HistogramWriteFile(diameters, 1, fmt.Sprintf("%s/finite-%d-cores-histogram.csv", outdir, K))
-			FloatHistogramWriteFile(speedups, 0.25, fmt.Sprintf("%s/finite-%d-cores-speedup-histogram.csv", outdir, K))
+			//HistogramWriteFile(diameters, 1, fmt.Sprintf("%s/finite-%d-cores-histogram.csv", outdir, K))
+			FloatHistogramWriteFile(gasSpeedups, 0.25, fmt.Sprintf("%s/finite-%d-cores-speedup-histogram.csv", outdir, K))
 		}
 	}
+
+	return blockSpeedups
 }
 
-type IntHistogram map[int]int
+func mainSpeedups(logs []fileWithNum, destdir string, outfile string, batches int, debug bool, listConflicts bool) int {
+	return 0
+	//log.Info("Executing mainSpeedups.")
+
+	//batchedSortedFiles := splitSliceIntoNParts(logs, batches)
+	//log.Info("Split into batches")
+	//for _, batch := range batchedSortedFiles {
+	//	fmt.Printf("Batch: %d - %d = %d", batch[0].num, batch[len(batch)-1].num, batch[len(batch)-1].num - batch[0].num)
+	//}
+	//
+	//blockSpeedups := make([]BlockSpeedup, 0, len(logs))
+	//totalTracesUsed := 0
+
+	//// go through them in batches, eventually blockTraces :: []*BlockTrace is cleared
+	//// and that should free program memory
+	//for batchno, sortedFiles := range batchedSortedFiles {
+	//	log.Info(fmt.Sprintf("Processing files for batch %d", batchno))
+	//	blockTraces := make([]*BlockTrace, 0, len(sortedFiles))
+	//	actuallyUsed := 0
+	//
+	//	// create block traces for the txs in the block in this batch
+	//	// of log files
+	//	for _, file := range sortedFiles {
+	//		trace, err := BlockTraceFromFile(file) 
+	//		if err != nil {
+	//			log.Error("Failed to get block trace", "err", err)
+	//			return 1
+	//		}
+
+	//		blockTraces = append(blockTraces, trace)
+	//		if actuallyUsed % 10000 == 0 && actuallyUsed > 0 {
+	//			log.Info("Processed", "used", actuallyUsed)
+	//		}
+	//		actuallyUsed++
+	//		totalTracesUsed++
+	//	}
+
+	//	// returns the diameter and speedup instograms for each number of cores and infinite cores
+	//	// diameters :: map[int]map[int]int and is indexed by k in {-1, 2, 4, 8, 16} and -1 is the key
+	//	// for the infinite cores histogram (analogous for speedups :: map[int]map[float64]int
+	//	speedups := SimMultipleFiniteCoresSpeedups(blockTraces, krange, debug, accessFlags, listConflicts)
+
+	//	// merge this batches histograms with all previous batches
+	//	log.Info(fmt.Sprintf("Accumulating diameter data for batch %d", batchno))
+	//	for k, h := range diameters {
+	//		if hist, exists := kDiameterHistograms[k]; exists {
+	//			mergeHistograms(hist, h)
+	//		} else {
+	//			kDiameterHistograms[k] = h
+	//		}
+	//	}
+
+	//	log.Info(fmt.Sprintf("Accumulating speedup data for batch %d", batchno))
+	//	for k, h := range speedups {
+	//		if hist, exists := kSpeedupHistograms[k]; exists {
+	//			mergeFloatHistograms(hist, h)
+	//		} else {
+	//			kSpeedupHistograms[k] = h
+	//		}
+	//	}
+	//}
+}
+
+// identical to the regular version but this just returns the histogram rather than doing any plotting
+func SimMultipleFiniteCoresSpeedups(blockTraces []*BlockTrace, krange []int, debug bool, filterFlags AccessType, listConflicts bool) []BlockSpeedup {
+	return nil
+	//blockGraphs := make([]*WeightedVertexGraph, 0, len(blockTraces))
+	//diameters := []int{}
+	//speedups := []float64{}
+
+	//// finite cores for each number of cores K in krange
+	//kDiameterMap := make(map[int]IntHistogram)
+	//kSpeedupMap := make(map[int]FloatHistogram)
+
+	//totalGas := []int{}
+	//gasSpeedups := []float64{}
+	//log.Info(fmt.Sprintf("Processing %d batches for ininite cores.", len(blockTraces)))
+	//for _, trace := range blockTraces {
+	//	g := BlockGraph(trace, filterFlags, listConflicts)
+	//	blockGraphs = append(blockGraphs, g)
+	//	concurrent := g.Diameter() + 1
+	//	sequential := g.NumVertices()
+	//	percent := float64(sequential)/float64(concurrent)
+	//	speedups = append(speedups, percent)
+	//	diameters = append(diameters, concurrent)
+	//	
+	//	sequentialGas := int(g.TotalVertexWeight())
+	//	concurrentGas := int(g.MaxWeightedVertexPath())
+	//	percent = float64(sequentialGas)/float64(concurrentGas)
+	//	totalGas = append(totalGas, sequentialGas)
+	//	gasSpeedups = append(gasSpeedups, percent)
+	//}	
+
+
+	//log.Info("Saving infinite cores data.")
+	//infiniteDiametersHist := createHistogram(diameters, 1)
+	//infiniteSpeedupHist := createFloatHistogram(speedups, 0.25)
+	//kDiameterMap[-1] = infiniteDiametersHist
+	//kSpeedupMap[-1] = infiniteSpeedupHist
+	////HistogramWriteFile(diameters, 1, fmt.Sprintf("%s/infinite-cores-histogram.csv", outdir))
+	////FloatHistogramWriteFile(speedups, 0.25, fmt.Sprintf("%s/infinite-cores-speedup-historam.csv", outdir))
+
+	//for _, K := range krange {
+	//	diameters := []int{}
+	//	speedups := []float64{}
+
+	//	totalGas := []int{}
+	//	gasSpeedups := []float64{}
+	//	log.Info(fmt.Sprintf("Processing %d batches for %d cores.", len(blockTraces), K))
+	//	for _, bgraph := range blockGraphs {
+	//		g := bgraph.Copy()
+	//		g.FiniteCores(K)
+	//		concurrent := g.Diameter() + 1
+	//		sequential := g.NumVertices()
+	//		percent := float64(sequential)/float64(concurrent)
+	//		speedups = append(speedups, percent)
+	//		diameters = append(diameters, concurrent)
+	//		
+	//		sequentialGas := int(g.TotalVertexWeight())
+	//		concurrentGas := int(g.MaxWeightedVertexPath())
+	//		percent = float64(sequentialGas)/float64(concurrentGas)
+	//		totalGas = append(totalGas, sequentialGas)
+	//		gasSpeedups = append(gasSpeedups, percent)
+	//		if debug {
+	//			log.Info("Speedup", "K", K, "sequential", sequentialGas, "concurrentGas", concurrentGas)
+	//		}
+	//	}
+	//	
+
+	//	log.Info("Saving finite cores data.")
+	//	diameterHist := createHistogram(diameters, 1)
+	//	speedupHist := createFloatHistogram(speedups, 0.25)
+	//	kDiameterMap[K] = diameterHist
+	//	kSpeedupMap[K] = speedupHist
+	//	//HistogramWriteFile(diameters, 1, fmt.Sprintf("%s/finite-%d-cores-histogram.csv", outdir, K))
+	//	//FloatHistogramWriteFile(speedups, 0.25, fmt.Sprintf("%s/finite-%d-cores-speedup-histogram.csv", outdir, K))
+	//}
+
+	//return kDiameterMap, kSpeedupMap
+}
+
+type UintHistogram map[int]int
 type FloatHistogram map[float64]int
 
 func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, listConflicts bool) int {
@@ -203,11 +380,10 @@ func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, li
 		fmt.Printf("Batch: %d - %d = %d", batch[0].num, batch[len(batch)-1].num, batch[len(batch)-1].num - batch[0].num)
 	}
 	
-	kDiameterHistograms := make(map[int]map[int]int)
 	kSpeedupHistograms := make(map[int]map[float64]int)
+	//blockSpeedups := make([]*BlockSpeedup, 0, len(logs))
+	blockSpeedups := []*BlockSpeedup{}
 	totalTracesUsed := 0
-	krange := []int{2, 4, 8, 16}
-	accessFlags := AccessOpcode | AccessCode
 	
 	// go through them in batches, eventually blockTraces :: []*BlockTrace is cleared
 	// and that should free program memory
@@ -236,30 +412,32 @@ func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, li
 		// returns the diameter and speedup instograms for each number of cores and infinite cores
 		// diameters :: map[int]map[int]int and is indexed by k in {-1, 2, 4, 8, 16} and -1 is the key
 		// for the infinite cores histogram (analogous for speedups :: map[int]map[float64]int
-		diameters, speedups := SimMultipleFiniteCoresBatched(blockTraces, krange, debug, accessFlags, listConflicts)
+		batchGasSpeedups, batchBlockSpeedups := SimMultipleFiniteCoresBatched(blockTraces, krange, debug, accessFlags, listConflicts)
 
 		// merge this batches histograms with all previous batches
-		log.Info(fmt.Sprintf("Accumulating diameter data for batch %d", batchno))
-		for k, h := range diameters {
-			if hist, exists := kDiameterHistograms[k]; exists {
-				mergeHistograms(hist, h)
-			} else {
-				kDiameterHistograms[k] = h
-			}
-		}
-
 		log.Info(fmt.Sprintf("Accumulating speedup data for batch %d", batchno))
-		for k, h := range speedups {
+		for k, h := range batchGasSpeedups {
 			if hist, exists := kSpeedupHistograms[k]; exists {
 				mergeFloatHistograms(hist, h)
 			} else {
 				kSpeedupHistograms[k] = h
 			}
 		}
+
+		// add to blockSpeedups
+		for _, bs := range batchBlockSpeedups {
+			blockSpeedups = append(blockSpeedups, bs)
+		}
+
+		if len(blockSpeedups) > len(logs) {
+			fmt.Printf("Too many block spedups. Got=%d, expected=%d\n", len(blockSpeedups), len(logs))
+			return 1
+		}
+
 	}
 
+	outdir := fmt.Sprintf("%s/concurrent-batched-%d-%s", destdir, totalTracesUsed, FormatAccessFlags(accessFlags))
 	if !debug {
-		outdir := fmt.Sprintf("%s/concurrent-%d-%s", destdir, totalTracesUsed, FormatAccessFlags(accessFlags))
 		if err := os.MkdirAll(outdir, 0755); err != nil {
 			log.Error("Couldn't create output directory for this run", "dir", outdir, "err", err)
 			return 1
@@ -267,34 +445,6 @@ func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, li
 
 		// if we're debugging we just care about the computation, 
 		// kDiameterHistograms and kSpeedupHistograms are now final and we can plot the graphs
-		for k, histogram := range kDiameterHistograms {
-			var diameterfn string
-			if k == -1 {
-				// this is the infinite runs
-				diameterfn = fmt.Sprintf("%s/infinite-cores-histogram.csv", outdir)
-			} else {
-				diameterfn = fmt.Sprintf("%s/finite-%d-cores-histogram.csv", outdir, k)
-			}
-
-			err := writeHistogramToFile(histogram, diameterfn, 1)
-			if err != nil {
-				log.Error("Error writing histogram to file.", "err", err)
-				return 1
-			} else {
-				log.Info("Successfully wrote histogram data.", "file", diameterfn)
-			}
-
-			var keys []int
-			for key := range histogram {
-				keys = append(keys, key)
-			}
-			sort.Ints(keys)
-			fmt.Printf("Histogram with a bin width of %d:\n", 1)
-			for _, key := range keys {
-				fmt.Printf("[%d - %s] %d elements\n", key, key+1-1, histogram[key])
-			}
-		}
-
 		for k, floatHistogram := range kSpeedupHistograms {
 			var speedupfn string
 			if k == -1 {
@@ -324,84 +474,110 @@ func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, li
 		}
 	}
 
+	speedupsFn := fmt.Sprintf("%s/block-speedups.csv", outdir)
+	log.Info("Writing speedups to file", "file", speedupsFn, "num speedups", len(blockSpeedups))
+	if err := writeSpeedupsToFile(blockSpeedups, speedupsFn); err != nil {
+		fmt.Printf("Error wriging blocl speedups to file: %v", err)
+		return 1
+	}
+
 	return 0
 }
 
-// identical to the regular version but this just returns the histogram rather than doing any plotting
-func SimMultipleFiniteCoresBatched(blockTraces []*BlockTrace, krange []int, debug bool, filterFlags AccessType, listConflicts bool) (map[int]IntHistogram, map[int]FloatHistogram) {
+// we want the relevant 
+func SimMultipleFiniteCoresBatched(blockTraces []*BlockTrace, krange []int, debug bool, filterFlags AccessType, listConflicts bool) (map[int]FloatHistogram, []*BlockSpeedup) {
 	blockGraphs := make([]*WeightedVertexGraph, 0, len(blockTraces))
-	diameters := []int{}
-	speedups := []float64{}
 
 	// finite cores for each number of cores K in krange
-	kDiameterMap := make(map[int]IntHistogram)
+	//kDiameterMap := make(map[int]IntHistogram)
 	kSpeedupMap := make(map[int]FloatHistogram)
+	blockSpeedups := make([]*BlockSpeedup, 0, len(blockTraces))
 
-	totalGas := []int{}
+	//gasSpeedups := make([]float64, 0, len(blockTraces))
 	gasSpeedups := []float64{}
 	log.Info(fmt.Sprintf("Processing %d batches for ininite cores.", len(blockTraces)))
 	for _, trace := range blockTraces {
 		g := BlockGraph(trace, filterFlags, listConflicts)
 		blockGraphs = append(blockGraphs, g)
-		concurrent := g.Diameter() + 1
-		sequential := g.NumVertices()
-		percent := float64(sequential)/float64(concurrent)
-		speedups = append(speedups, percent)
-		diameters = append(diameters, concurrent)
+		//concurrent := g.Diameter() + 1
+		//sequential := g.NumVertices()
+		//percent := float64(sequential)/float64(concurrent)
+		//speedups = append(speedups, percent)
+		//diameters = append(diameters, concurrent)
 		
-		sequentialGas := int(g.TotalVertexWeight())
-		concurrentGas := int(g.MaxWeightedVertexPath())
-		percent = float64(sequentialGas)/float64(concurrentGas)
-		totalGas = append(totalGas, sequentialGas)
-		gasSpeedups = append(gasSpeedups, percent)
+		concurrent := g.HeaviestPath()
+		sequential := g.TotalVertexWeight()
+		var speedup float64
+		if sequential == 0 {
+			speedup = float64(0)
+		} else {
+			speedup = float64(sequential)/float64(concurrent)
+		}
+		gasSpeedups = append(gasSpeedups, speedup)
+		blockSpeedup := &BlockSpeedup{
+			BlockNumber:	trace.BlockNumber,
+			Sequential:		sequential,
+			Equivalent:		map[int]uint64{
+								-1: concurrent,
+							},
+		}
+		blockSpeedups = append(blockSpeedups, blockSpeedup)
 	}	
 
 
 	log.Info("Saving infinite cores data.")
-	infiniteDiametersHist := createHistogram(diameters, 1)
-	infiniteSpeedupHist := createFloatHistogram(speedups, 0.25)
-	kDiameterMap[-1] = infiniteDiametersHist
+	//infiniteDiametersHist := createHistogram(diameters, 1)
+	infiniteSpeedupHist := createFloatHistogram(gasSpeedups, 0.25)
+	//kDiameterMap[-1] = infiniteDiametersHist
 	kSpeedupMap[-1] = infiniteSpeedupHist
 	//HistogramWriteFile(diameters, 1, fmt.Sprintf("%s/infinite-cores-histogram.csv", outdir))
 	//FloatHistogramWriteFile(speedups, 0.25, fmt.Sprintf("%s/infinite-cores-speedup-historam.csv", outdir))
 
 	for _, K := range krange {
-		diameters := []int{}
-		speedups := []float64{}
-
-		totalGas := []int{}
+		//diameters := []int{}
+		//speedups := []float64{}
+		//totalGas := []int{}
+		//gasSpeedups := make([]float64, 0, len(blockTraces))
 		gasSpeedups := []float64{}
 		log.Info(fmt.Sprintf("Processing %d batches for %d cores.", len(blockTraces), K))
-		for _, bgraph := range blockGraphs {
+		for i, bgraph := range blockGraphs {
 			g := bgraph.Copy()
 			g.FiniteCores(K)
-			concurrent := g.Diameter() + 1
-			sequential := g.NumVertices()
-			percent := float64(sequential)/float64(concurrent)
-			speedups = append(speedups, percent)
-			diameters = append(diameters, concurrent)
-			
-			sequentialGas := int(g.TotalVertexWeight())
-			concurrentGas := int(g.MaxWeightedVertexPath())
-			percent = float64(sequentialGas)/float64(concurrentGas)
-			totalGas = append(totalGas, sequentialGas)
-			gasSpeedups = append(gasSpeedups, percent)
+			//concurrent := g.Diameter() + 1
+			//sequential := g.NumVertices()
+			//percent := float64(sequential)/float64(concurrent)
+			//speedups = append(speedups, percent)
+			//diameters = append(diameters, concurrent)
+			concurrent := g.HeaviestPath()
+			sequential := g.TotalVertexWeight()
+			var speedup float64
+			if sequential == 0 {
+				speedup = float64(0)
+			} else {
+				speedup = float64(sequential)/float64(concurrent)	
+			}
+			//sequentialGas := int(g.TotalVertexWeight())
+			//concurrentGas := int(g.MaxWeightedVertexPath())
+			//percent = float64(sequentialGas)/float64(concurrentGas)
+			//totalGas = append(totalGas, sequentialGas)
+			gasSpeedups = append(gasSpeedups, speedup)
+			blockSpeedups[i].Equivalent[K] = concurrent
 			if debug {
-				log.Info("Speedup", "K", K, "sequential", sequentialGas, "concurrentGas", concurrentGas)
+				log.Info("Speedup", "K", K, "sequential", sequential, "concurrentGas", concurrent, "speedup", speedup)
 			}
 		}
 		
 
 		log.Info("Saving finite cores data.")
-		diameterHist := createHistogram(diameters, 1)
-		speedupHist := createFloatHistogram(speedups, 0.25)
-		kDiameterMap[K] = diameterHist
+		//diameterHist := createHistogram(diameters, 1)
+		speedupHist := createFloatHistogram(gasSpeedups, 0.25)
+		//kDiameterMap[K] = diameterHist
 		kSpeedupMap[K] = speedupHist
 		//HistogramWriteFile(diameters, 1, fmt.Sprintf("%s/finite-%d-cores-histogram.csv", outdir, K))
 		//FloatHistogramWriteFile(speedups, 0.25, fmt.Sprintf("%s/finite-%d-cores-speedup-histogram.csv", outdir, K))
 	}
 
-	return kDiameterMap, kSpeedupMap
+	return kSpeedupMap, blockSpeedups
 }
 
 
@@ -509,7 +685,7 @@ func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts bo
 				}
 			}
 		}
-		log.Info("Block", "number", blockTrace.BlockNumber, "txidx", txidx, "conflicts", len(conflicts), "graph", graph.Diameter())
+		//log.Info("Block", "number", blockTrace.BlockNumber, "txidx", txidx, "conflicts", len(conflicts), "graph", graph.Diameter())
 		return &graph
 	}
 	log.Info("Empty graph")

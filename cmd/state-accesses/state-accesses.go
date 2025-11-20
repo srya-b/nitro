@@ -36,7 +36,8 @@ func mainImpl() int {
 	batchesPtr := flag.Int("batches", 1, "The number of batches to process.")
 	debugPtr := flag.Bool("debug", false, "Enable debug mode.")
 	limitPtr := flag.Int("limit", math.MaxInt, "Limit the number of items to process (default: no limit).")
-	listConflictsPtr := flag.Bool("list-conflicts", false, "List accesses that conflict across ALL transactions in the block.")
+	listConflictsPtr := flag.Int("list-conflicts", -1, "List accesses that conflict across len(txs) - <value> transactions in a block. --list-conflicts 2 will list conflicts if they conflict across len(txs)-2 transactions in every block.")
+	//listConflictsPtr := flag.Bool("list-conflicts", false, "List accesses that conflict across ALL transactions in the block.")
 	//speedupPtr := flag.String("speedups", "", "Write the speedups per block, per core number, to a csv file")
 	filterArbosPtr := flag.Bool("filter-arbos", false, "Filter the three ArbOS slots from the access set.")
 
@@ -160,7 +161,7 @@ type BlockSpeedup struct {
 	Equivalent		map[int]uint64
 }
 
-func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, outdir string, filterFlags AccessType, debug bool, listConflicts bool, filterArbos bool) []*BlockSpeedup {
+func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, outdir string, filterFlags AccessType, debug bool, listConflicts int, filterArbos bool) []*BlockSpeedup {
 	blockGraphs := make([]*WeightedVertexGraph, 0, len(blockTraces))
 	//diameters := []int{}
 	//speedups := []float64{}
@@ -245,7 +246,7 @@ func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, 
 type UintHistogram map[int]int
 type FloatHistogram map[float64]int
 
-func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, listConflicts bool, filterArbos bool) int {
+func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, listConflicts int, filterArbos bool) int {
 	log.Info("Executing in batches.")
 
 	batchedSortedFiles := splitSliceIntoNParts(logs, batches)
@@ -383,7 +384,7 @@ func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, li
 }
 
 // we want the relevant 
-func SimMultipleFiniteCoresBatched(blockTraces []*BlockTrace, krange []int, debug bool, filterFlags AccessType, listConflicts bool, filterArbos bool) (map[int]FloatHistogram, []*BlockSpeedup) {
+func SimMultipleFiniteCoresBatched(blockTraces []*BlockTrace, krange []int, debug bool, filterFlags AccessType, listConflicts int, filterArbos bool) (map[int]FloatHistogram, []*BlockSpeedup) {
 	blockGraphs := make([]*WeightedVertexGraph, 0, len(blockTraces))
 
 	// finite cores for each number of cores K in krange
@@ -483,7 +484,7 @@ var FilterAddrs = map[common.Address]bool{
 	//common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf"):true,
 }
 
-func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts bool, debug bool, filterArbos bool) *WeightedVertexGraph {
+func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts int, debug bool, filterArbos bool) *WeightedVertexGraph {
 	// have: reads and writes per transaction
 	// want: transactions per read and write
 	txWrites := make(map[KeyPair]map[int]bool)
@@ -547,7 +548,7 @@ func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts bo
 	}
 
 	// if --list-conflicts print out the conflicts that exist across all transactions in this block
-	if listConflicts {
+	if listConflicts >= 0 {
 		// reads by all: the keys in txReads s.t. len(txReads[k]) == txidx
 		readByAll := make(map[KeyPair]bool)
 		for pair, txs := range txReads {

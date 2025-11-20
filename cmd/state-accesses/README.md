@@ -5,7 +5,7 @@ Build the executable with `make target/bin/state-accesses` (the target is alread
 ## Usage
 The processor is called via
 
-`./target/bin/state-accesses [--batches b] [--limit l] [--debug] [--filter-arbos] <data directory> <output directory?`
+`./target/bin/state-accesses [--batches b] [--limit l] [--list-conflicts c] [--debug] [--filter-arbos] <data directory> <output directory?`
 
 The executable reads data files (one per block) from `<data directory>` whose names matche the regex `^state_trace_block(\d+)\.json$` (files like `state_trace_block_123456.json`), and processes them from lowest to highest block number. 
 The program writes the output data to `<output directory>` in the form of a directory that specifies what parameters the data was processed with.
@@ -15,6 +15,8 @@ The program writes the output data to `<output directory>` in the form of a dire
 `--batches b`: breaks the data into `b` batches and processes them as such. The resulting histogram from each batch is saved, and they are all merged. This is useful if the data is so large it fills your memory and the os kills the process.
 
 `--filter-arbos`: filter OUT the three arbos state accesses that currently cause conflicts in all transactions.
+
+`--list-conflicts c`: print to console the slots that conflicts across len(txs) - c transactions in a block. For slots that conflict across ALL transactions use `--list-conflicts 0`.
 
 `--debug`: don't write anything to file
 

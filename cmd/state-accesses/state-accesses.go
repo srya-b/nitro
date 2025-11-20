@@ -8,6 +8,7 @@ import (
 	"flag"
 	"math/big"
 	_"strconv"
+	"runtime"
 
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/common"
@@ -15,12 +16,18 @@ import (
 )
 
 // ---------- additional parameters ----------
-var accessFlags = AccessOpcode | AccessCode
+var accessFlags = AccessOpcode | AccessCode | AccessArb
 var krange = []int{2, 4, 8, 16}
 // -------------------------------------------
 
 func main() {
 	os.Exit(mainImpl())
+}
+
+var filterKeys = map[KeyPair]bool{
+	KeyPair{common.Address{}, common.HexToHash("a9f6f085d78d1d37c5819e5c16c9e03198bd14e08cd1f6f8191bc6207b9e9706")}: true,
+	KeyPair{common.Address{}, common.HexToHash("a9f6f085d78d1d37c5819e5c16c9e03198bd14e08cd1f6f8191bc6207b9e970b")}: true,
+	KeyPair{common.Address{}, common.HexToHash("e54de2a4cdacc0a0059d2b6e16348103df8c4aff409c31e40ec73d11926c8204")}: true,
 }
 
 func mainImpl() int {
@@ -30,7 +37,8 @@ func mainImpl() int {
 	debugPtr := flag.Bool("debug", false, "Enable debug mode.")
 	limitPtr := flag.Int("limit", math.MaxInt, "Limit the number of items to process (default: no limit).")
 	listConflictsPtr := flag.Bool("list-conflicts", false, "List accesses that conflict across ALL transactions in the block.")
-	speedupPtr := flag.String("speedups", "", "Write the speedups per block, per core number, to a csv file")
+	//speedupPtr := flag.String("speedups", "", "Write the speedups per block, per core number, to a csv file")
+	filterArbosPtr := flag.Bool("filter-arbos", false, "Filter the three ArbOS slots from the access set.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] <data_dir> <output_dir>\n", os.Args[0])
@@ -63,6 +71,7 @@ func mainImpl() int {
 	fmt.Printf("Batches:          %d\n", *batchesPtr)
 	fmt.Printf("Debug Mode:       %t\n", *debugPtr)
 	fmt.Printf("List conflicts:   %t\n", *listConflictsPtr)
+	fmt.Printf("Filter ArbOS:     %t\n", *filterArbosPtr)
 
 	limitVal := "Not set"
 	if *limitPtr != math.MaxInt {
@@ -88,12 +97,12 @@ func mainImpl() int {
 
 	log.Info("Block access data", "first", sortedFiles[0].num, "last", sortedFiles[len(sortedFiles)-1].num)
 
-	if *speedupPtr != "" {
-		return mainSpeedups(sortedFiles, destdir, *speedupPtr, batches, debug, listConflicts)
-	}
+	//if *speedupPtr != "" {
+	//	return mainSpeedups(sortedFiles, destdir, *speedupPtr, batches, debug, listConflicts, *filterArbosPtr)
+	//}
 
 	if batches > 1 {
-		return mainBatched(sortedFiles, destdir, batches, debug, listConflicts)
+		return mainBatched(sortedFiles, destdir, batches, debug, listConflicts, *filterArbosPtr)
 	}	
 
 
@@ -120,7 +129,12 @@ func mainImpl() int {
 	}
 
 	// the output directory of all these files is determined by the access flags and limit
-	outdir := fmt.Sprintf("%s/concurrent-%d-%s", destdir, actuallyUsed, FormatAccessFlags(accessFlags))
+	var outdir string
+	if *filterArbosPtr {
+		outdir = fmt.Sprintf("%s/concurrent-filtered-%d-%s", destdir, actuallyUsed, FormatAccessFlags(accessFlags))
+	} else {
+		outdir = fmt.Sprintf("%s/concurrent-%d-%s", destdir, actuallyUsed, FormatAccessFlags(accessFlags))
+	}
 
 	if err := os.MkdirAll(outdir, 0755); err != nil {
 		log.Error("Couldn't create output directory for this run", "dir", outdir)
@@ -129,7 +143,7 @@ func mainImpl() int {
 	
 	log.Info("Outdir", "outdir", outdir)
 
-	blockSpeedups := SimMultipleFiniteCores(blockTraces, actuallyUsed, krange, outdir, accessFlags, debug, listConflicts)
+	blockSpeedups := SimMultipleFiniteCores(blockTraces, actuallyUsed, krange, outdir, accessFlags, debug, listConflicts, *filterArbosPtr)
 
 	speedupsFn := fmt.Sprintf("%s/block-speedups.csv", outdir)
 	log.Info("Writing speedups to file", "file", speedupsFn, "num speedups", len(blockSpeedups))
@@ -146,7 +160,7 @@ type BlockSpeedup struct {
 	Equivalent		map[int]uint64
 }
 
-func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, outdir string, filterFlags AccessType, debug bool, listConflicts bool) []*BlockSpeedup {
+func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, outdir string, filterFlags AccessType, debug bool, listConflicts bool, filterArbos bool) []*BlockSpeedup {
 	blockGraphs := make([]*WeightedVertexGraph, 0, len(blockTraces))
 	//diameters := []int{}
 	//speedups := []float64{}
@@ -156,7 +170,7 @@ func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, 
 	
 	blockSpeedups := make([]*BlockSpeedup, 0, len(blockTraces))
 	for _, trace := range blockTraces {
-		g := BlockGraph(trace, filterFlags, listConflicts)
+		g := BlockGraph(trace, filterFlags, listConflicts, debug, filterArbos)
 		blockGraphs = append(blockGraphs, g)
 		//concurrent := g.Diameter() + 1
 		//sequential := g.NumVertices()
@@ -227,151 +241,11 @@ func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, 
 	return blockSpeedups
 }
 
-func mainSpeedups(logs []fileWithNum, destdir string, outfile string, batches int, debug bool, listConflicts bool) int {
-	return 0
-	//log.Info("Executing mainSpeedups.")
-
-	//batchedSortedFiles := splitSliceIntoNParts(logs, batches)
-	//log.Info("Split into batches")
-	//for _, batch := range batchedSortedFiles {
-	//	fmt.Printf("Batch: %d - %d = %d", batch[0].num, batch[len(batch)-1].num, batch[len(batch)-1].num - batch[0].num)
-	//}
-	//
-	//blockSpeedups := make([]BlockSpeedup, 0, len(logs))
-	//totalTracesUsed := 0
-
-	//// go through them in batches, eventually blockTraces :: []*BlockTrace is cleared
-	//// and that should free program memory
-	//for batchno, sortedFiles := range batchedSortedFiles {
-	//	log.Info(fmt.Sprintf("Processing files for batch %d", batchno))
-	//	blockTraces := make([]*BlockTrace, 0, len(sortedFiles))
-	//	actuallyUsed := 0
-	//
-	//	// create block traces for the txs in the block in this batch
-	//	// of log files
-	//	for _, file := range sortedFiles {
-	//		trace, err := BlockTraceFromFile(file) 
-	//		if err != nil {
-	//			log.Error("Failed to get block trace", "err", err)
-	//			return 1
-	//		}
-
-	//		blockTraces = append(blockTraces, trace)
-	//		if actuallyUsed % 10000 == 0 && actuallyUsed > 0 {
-	//			log.Info("Processed", "used", actuallyUsed)
-	//		}
-	//		actuallyUsed++
-	//		totalTracesUsed++
-	//	}
-
-	//	// returns the diameter and speedup instograms for each number of cores and infinite cores
-	//	// diameters :: map[int]map[int]int and is indexed by k in {-1, 2, 4, 8, 16} and -1 is the key
-	//	// for the infinite cores histogram (analogous for speedups :: map[int]map[float64]int
-	//	speedups := SimMultipleFiniteCoresSpeedups(blockTraces, krange, debug, accessFlags, listConflicts)
-
-	//	// merge this batches histograms with all previous batches
-	//	log.Info(fmt.Sprintf("Accumulating diameter data for batch %d", batchno))
-	//	for k, h := range diameters {
-	//		if hist, exists := kDiameterHistograms[k]; exists {
-	//			mergeHistograms(hist, h)
-	//		} else {
-	//			kDiameterHistograms[k] = h
-	//		}
-	//	}
-
-	//	log.Info(fmt.Sprintf("Accumulating speedup data for batch %d", batchno))
-	//	for k, h := range speedups {
-	//		if hist, exists := kSpeedupHistograms[k]; exists {
-	//			mergeFloatHistograms(hist, h)
-	//		} else {
-	//			kSpeedupHistograms[k] = h
-	//		}
-	//	}
-	//}
-}
-
-// identical to the regular version but this just returns the histogram rather than doing any plotting
-func SimMultipleFiniteCoresSpeedups(blockTraces []*BlockTrace, krange []int, debug bool, filterFlags AccessType, listConflicts bool) []BlockSpeedup {
-	return nil
-	//blockGraphs := make([]*WeightedVertexGraph, 0, len(blockTraces))
-	//diameters := []int{}
-	//speedups := []float64{}
-
-	//// finite cores for each number of cores K in krange
-	//kDiameterMap := make(map[int]IntHistogram)
-	//kSpeedupMap := make(map[int]FloatHistogram)
-
-	//totalGas := []int{}
-	//gasSpeedups := []float64{}
-	//log.Info(fmt.Sprintf("Processing %d batches for ininite cores.", len(blockTraces)))
-	//for _, trace := range blockTraces {
-	//	g := BlockGraph(trace, filterFlags, listConflicts)
-	//	blockGraphs = append(blockGraphs, g)
-	//	concurrent := g.Diameter() + 1
-	//	sequential := g.NumVertices()
-	//	percent := float64(sequential)/float64(concurrent)
-	//	speedups = append(speedups, percent)
-	//	diameters = append(diameters, concurrent)
-	//	
-	//	sequentialGas := int(g.TotalVertexWeight())
-	//	concurrentGas := int(g.MaxWeightedVertexPath())
-	//	percent = float64(sequentialGas)/float64(concurrentGas)
-	//	totalGas = append(totalGas, sequentialGas)
-	//	gasSpeedups = append(gasSpeedups, percent)
-	//}	
-
-
-	//log.Info("Saving infinite cores data.")
-	//infiniteDiametersHist := createHistogram(diameters, 1)
-	//infiniteSpeedupHist := createFloatHistogram(speedups, 0.25)
-	//kDiameterMap[-1] = infiniteDiametersHist
-	//kSpeedupMap[-1] = infiniteSpeedupHist
-	////HistogramWriteFile(diameters, 1, fmt.Sprintf("%s/infinite-cores-histogram.csv", outdir))
-	////FloatHistogramWriteFile(speedups, 0.25, fmt.Sprintf("%s/infinite-cores-speedup-historam.csv", outdir))
-
-	//for _, K := range krange {
-	//	diameters := []int{}
-	//	speedups := []float64{}
-
-	//	totalGas := []int{}
-	//	gasSpeedups := []float64{}
-	//	log.Info(fmt.Sprintf("Processing %d batches for %d cores.", len(blockTraces), K))
-	//	for _, bgraph := range blockGraphs {
-	//		g := bgraph.Copy()
-	//		g.FiniteCores(K)
-	//		concurrent := g.Diameter() + 1
-	//		sequential := g.NumVertices()
-	//		percent := float64(sequential)/float64(concurrent)
-	//		speedups = append(speedups, percent)
-	//		diameters = append(diameters, concurrent)
-	//		
-	//		sequentialGas := int(g.TotalVertexWeight())
-	//		concurrentGas := int(g.MaxWeightedVertexPath())
-	//		percent = float64(sequentialGas)/float64(concurrentGas)
-	//		totalGas = append(totalGas, sequentialGas)
-	//		gasSpeedups = append(gasSpeedups, percent)
-	//		if debug {
-	//			log.Info("Speedup", "K", K, "sequential", sequentialGas, "concurrentGas", concurrentGas)
-	//		}
-	//	}
-	//	
-
-	//	log.Info("Saving finite cores data.")
-	//	diameterHist := createHistogram(diameters, 1)
-	//	speedupHist := createFloatHistogram(speedups, 0.25)
-	//	kDiameterMap[K] = diameterHist
-	//	kSpeedupMap[K] = speedupHist
-	//	//HistogramWriteFile(diameters, 1, fmt.Sprintf("%s/finite-%d-cores-histogram.csv", outdir, K))
-	//	//FloatHistogramWriteFile(speedups, 0.25, fmt.Sprintf("%s/finite-%d-cores-speedup-histogram.csv", outdir, K))
-	//}
-
-	//return kDiameterMap, kSpeedupMap
-}
 
 type UintHistogram map[int]int
 type FloatHistogram map[float64]int
 
-func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, listConflicts bool) int {
+func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, listConflicts bool, filterArbos bool) int {
 	log.Info("Executing in batches.")
 
 	batchedSortedFiles := splitSliceIntoNParts(logs, batches)
@@ -379,10 +253,29 @@ func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, li
 	for _, batch := range batchedSortedFiles {
 		fmt.Printf("Batch: %d - %d = %d", batch[0].num, batch[len(batch)-1].num, batch[len(batch)-1].num - batch[0].num)
 	}
+
+	var outdir string
+	if filterArbos {
+		outdir = fmt.Sprintf("%s/concurrent-filtered-batched-%d-%s", destdir, len(logs), FormatAccessFlags(accessFlags))
+	} else {
+		outdir = fmt.Sprintf("%s/concurrent-batched-%d-%s", destdir, len(logs), FormatAccessFlags(accessFlags))
+	}
+
+	var speedupsFn string
+	if !debug {
+		if err := os.MkdirAll(outdir, 0755); err != nil {
+			log.Error("Couldn't create output directory for this run", "dir", outdir, "err", err)
+			return 1
+		}
+		speedupsFn = fmt.Sprintf("%s/block-speedups.csv", outdir)
+		f, _ := os.Create(speedupsFn)
+		f.WriteString("BlockNumber,Cores,Sequential,Concurrent\n")
+		f.Close()
+	}
 	
 	kSpeedupHistograms := make(map[int]map[float64]int)
 	//blockSpeedups := make([]*BlockSpeedup, 0, len(logs))
-	blockSpeedups := []*BlockSpeedup{}
+	//blockSpeedups := []*BlockSpeedup{}
 	totalTracesUsed := 0
 	
 	// go through them in batches, eventually blockTraces :: []*BlockTrace is cleared
@@ -412,7 +305,7 @@ func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, li
 		// returns the diameter and speedup instograms for each number of cores and infinite cores
 		// diameters :: map[int]map[int]int and is indexed by k in {-1, 2, 4, 8, 16} and -1 is the key
 		// for the infinite cores histogram (analogous for speedups :: map[int]map[float64]int
-		batchGasSpeedups, batchBlockSpeedups := SimMultipleFiniteCoresBatched(blockTraces, krange, debug, accessFlags, listConflicts)
+		batchGasSpeedups, batchBlockSpeedups := SimMultipleFiniteCoresBatched(blockTraces, krange, debug, accessFlags, listConflicts, filterArbos)
 
 		// merge this batches histograms with all previous batches
 		log.Info(fmt.Sprintf("Accumulating speedup data for batch %d", batchno))
@@ -424,24 +317,29 @@ func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, li
 			}
 		}
 
-		// add to blockSpeedups
-		for _, bs := range batchBlockSpeedups {
-			blockSpeedups = append(blockSpeedups, bs)
+		if !debug {
+			appendSpeedupsToFile(batchBlockSpeedups, speedupsFn)
 		}
+		batchBlockSpeedups = nil
+		runtime.GC()
+		//// add to blockSpeedups
+		//for _, bs := range batchBlockSpeedups {
+		//	blockSpeedups = append(blockSpeedups, bs)
+		//}
 
-		if len(blockSpeedups) > len(logs) {
-			fmt.Printf("Too many block spedups. Got=%d, expected=%d\n", len(blockSpeedups), len(logs))
-			return 1
-		}
+		//if len(blockSpeedups) > len(logs) {
+		//	fmt.Printf("Too many block spedups. Got=%d, expected=%d\n", len(blockSpeedups), len(logs))
+		//	return 1
+		//}
 
 	}
 
-	outdir := fmt.Sprintf("%s/concurrent-batched-%d-%s", destdir, totalTracesUsed, FormatAccessFlags(accessFlags))
+	//outdir := fmt.Sprintf("%s/concurrent-batched-%d-%s", destdir, totalTracesUsed, FormatAccessFlags(accessFlags))
 	if !debug {
-		if err := os.MkdirAll(outdir, 0755); err != nil {
-			log.Error("Couldn't create output directory for this run", "dir", outdir, "err", err)
-			return 1
-		}
+		//if err := os.MkdirAll(outdir, 0755); err != nil {
+		//	log.Error("Couldn't create output directory for this run", "dir", outdir, "err", err)
+		//	return 1
+		//}
 
 		// if we're debugging we just care about the computation, 
 		// kDiameterHistograms and kSpeedupHistograms are now final and we can plot the graphs
@@ -474,18 +372,18 @@ func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, li
 		}
 	}
 
-	speedupsFn := fmt.Sprintf("%s/block-speedups.csv", outdir)
-	log.Info("Writing speedups to file", "file", speedupsFn, "num speedups", len(blockSpeedups))
-	if err := writeSpeedupsToFile(blockSpeedups, speedupsFn); err != nil {
-		fmt.Printf("Error wriging blocl speedups to file: %v", err)
-		return 1
-	}
+	//speedupsFn := fmt.Sprintf("%s/block-speedups.csv", outdir)
+	//log.Info("Writing speedups to file", "file", speedupsFn, "num speedups", len(blockSpeedups))
+	//if err := writeSpeedupsToFile(blockSpeedups, speedupsFn); err != nil {
+	//	fmt.Printf("Error wriging blocl speedups to file: %v", err)
+	//	return 1
+	//}
 
 	return 0
 }
 
 // we want the relevant 
-func SimMultipleFiniteCoresBatched(blockTraces []*BlockTrace, krange []int, debug bool, filterFlags AccessType, listConflicts bool) (map[int]FloatHistogram, []*BlockSpeedup) {
+func SimMultipleFiniteCoresBatched(blockTraces []*BlockTrace, krange []int, debug bool, filterFlags AccessType, listConflicts bool, filterArbos bool) (map[int]FloatHistogram, []*BlockSpeedup) {
 	blockGraphs := make([]*WeightedVertexGraph, 0, len(blockTraces))
 
 	// finite cores for each number of cores K in krange
@@ -497,7 +395,7 @@ func SimMultipleFiniteCoresBatched(blockTraces []*BlockTrace, krange []int, debu
 	gasSpeedups := []float64{}
 	log.Info(fmt.Sprintf("Processing %d batches for ininite cores.", len(blockTraces)))
 	for _, trace := range blockTraces {
-		g := BlockGraph(trace, filterFlags, listConflicts)
+		g := BlockGraph(trace, filterFlags, listConflicts, debug, filterArbos)
 		blockGraphs = append(blockGraphs, g)
 		//concurrent := g.Diameter() + 1
 		//sequential := g.NumVertices()
@@ -585,7 +483,7 @@ var FilterAddrs = map[common.Address]bool{
 	//common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf"):true,
 }
 
-func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts bool) *WeightedVertexGraph {
+func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts bool, debug bool, filterArbos bool) *WeightedVertexGraph {
 	// have: reads and writes per transaction
 	// want: transactions per read and write
 	txWrites := make(map[KeyPair]map[int]bool)
@@ -599,7 +497,14 @@ func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts bo
 	
 		// filter the tx trace by the input filter
 		//writeAccesses, readAccesses := FilterAccesses(txTrace, filterFlags)
-		writeAccesses, readAccesses := FilterAccessesAndByAddress(txTrace, filterFlags, FilterAddrs)
+		var writeAccesses []KeyAccess
+		var readAccesses []KeyAccess
+		if filterArbos {
+			writeAccesses, readAccesses = FilterAccessesAndByAddress(txTrace, filterFlags, FilterAddrs, filterKeys)
+		} else {
+			writeAccesses, readAccesses = FilterAccessesAndByAddress(txTrace, filterFlags, map[common.Address]bool{}, map[KeyPair]bool{})
+		}
+			
 
 		// process the reads in this transactions and determine conflits
 		for _, access := range readAccesses {
@@ -685,7 +590,9 @@ func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts bo
 				}
 			}
 		}
-		//log.Info("Block", "number", blockTrace.BlockNumber, "txidx", txidx, "conflicts", len(conflicts), "graph", graph.Diameter())
+		if debug {
+			log.Info("Block", "number", blockTrace.BlockNumber, "txidx", txidx, "conflicts", len(conflicts), "graph", graph.Diameter())
+		}
 		return &graph
 	}
 	log.Info("Empty graph")

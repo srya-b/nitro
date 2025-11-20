@@ -127,10 +127,10 @@ func (g WeightedVertexGraph) AddEdge(u, v int) error {
 		return fmt.Errorf("vertex %d does not exist in the graph", v)
 	}
 
-	// 2. Check for Acyclicity (Cycle Detection)
-	if g.canReach(v, u) {
-		return fmt.Errorf("cannot add directed edge %d -> %d: adding this edge creates a cycle", u, v)
-	}
+	//// 2. Check for Acyclicity (Cycle Detection)
+	//if g.canReach(v, u) {
+	//	return fmt.Errorf("cannot add directed edge %d -> %d: adding this edge creates a cycle", u, v)
+	//}
 
 	// 3. Check for Duplicate Edge (since it's a slice)
 	if contains(g.Adj[u], v) {
@@ -436,7 +436,7 @@ func (g WeightedVertexGraph) HeaviestPath() uint64 {
 	}
 
 	// memo stores the calculated heaviest path weight *starting* from a given vertex.
-	memo := make(map[int]uint64)
+	memo := make(map[int]uint64, N)
 	var maxOverallWeight uint64 = 0
 
 	// We must check the heaviest path starting from *every* vertex,

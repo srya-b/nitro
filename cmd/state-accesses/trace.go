@@ -107,7 +107,7 @@ func FilterAccesses(txTrace *TxTrace, filterFlags AccessType) ([]KeyAccess, []Ke
 	return filteredWrites, filteredReads
 }
 
-func FilterAccessesAndByAddress(txTrace *TxTrace, filterFlags AccessType, targets map[common.Address]bool) ([]KeyAccess, []KeyAccess) {
+func FilterAccessesAndByAddress(txTrace *TxTrace, filterFlags AccessType, targets map[common.Address]bool, targetKeys map[KeyPair]bool) ([]KeyAccess, []KeyAccess) {
 	var filteredWrites []KeyAccess
 	var filteredReads []KeyAccess
 
@@ -128,7 +128,8 @@ func FilterAccessesAndByAddress(txTrace *TxTrace, filterFlags AccessType, target
 
 					// 3. Now check for the extra address filers
 					_, skip := targets[access.Pair.Address]
-					if !skip {
+					_, skipKey := targetKeys[access.Pair]
+					if !skip && !skipKey{
 						dest = append(dest, access)
 					}
 				}

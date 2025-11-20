@@ -124,9 +124,9 @@ func (g DependencyGraph) AddEdge(u, v int) error {
     
     // 2. Check for Acyclicity (Cycle Detection)
     // A cycle exists if adding U -> V means V can already reach U.
-    if g.canReach(v, u) {
-        return fmt.Errorf("cannot add directed edge %d -> %d: adding this edge creates a cycle", u, v)
-    }
+    //if g.canReach(v, u) {
+    //    return fmt.Errorf("cannot add directed edge %d -> %d: adding this edge creates a cycle", u, v)
+    //}
 
     // 3. Check for Duplicate Edge (since it's a slice)
 	if contains(g.Adj[u], v) {

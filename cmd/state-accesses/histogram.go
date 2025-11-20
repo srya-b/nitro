@@ -60,6 +60,21 @@ func writeSpeedupsToFile(blockSpeedups []*BlockSpeedup, filePath string) error {
 	return writer.Flush()
 }
 
+func appendSpeedupsToFile(blockSpeedups []*BlockSpeedup, filePath string) {
+    f, err := os.OpenFile(filePath, os.O_APPEND|os.O_WRONLY, 0644)
+    if err != nil { return }
+    defer f.Close()
+    
+    writer := bufio.NewWriter(f)
+    for _, bs := range blockSpeedups {
+        for k, concurrent := range bs.Equivalent {
+            line := fmt.Sprintf("%d,%d,%d,%d\n", bs.BlockNumber, k, bs.Sequential, concurrent)
+            writer.WriteString(line)
+        }
+    }
+    writer.Flush()
+}
+
 // writeHistogramToFile writes the histogram data to a specified file path in a simple CSV format.
 func writeHistogramToFile(histogram map[int]int, filePath string, binWidth int) error {
 	file, err := os.Create(filePath)

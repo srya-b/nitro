@@ -171,7 +171,7 @@ def plot_multiple_line_histogram(base_filenames, save_path, data_type, bin_width
     title_suffix = f'Float64 Data (Bin Width: {bin_width})' if data_type == float else 'Integer Data'
 
     for fn in base_filenames:
-        file_path = f"/home/admin/surya/parallel-data/concurrent-1000-opcode,code/{fn}.csv"
+        file_path = f"/home/admin/surya/parallel-data/concurrent-filtered-batched-1656802-opcode,arb,code/{fn}.csv"
         bins = []
         counts = []
         
@@ -226,7 +226,7 @@ def plot_multiple_line_histogram(base_filenames, save_path, data_type, bin_width
             filtered_bins = []
             filtered_counts = []
             for i in range(len(bins)):
-                if bins[i] < 16.5:
+                if bins[i] < 16.5 and bins[i] > 0.25:
                     filtered_bins.append(bins[i])
                     filtered_counts.append(counts[i])
             if not filtered_bins:
@@ -290,7 +290,7 @@ if __name__ == "__main__":
             raise ValueError("In 'multiple-line' mode, you must provide an output filename and at least one input filename.")
 
         # 1. Extract the output file path
-        save_path = '/home/admin/surya/parallel-data/concurrent-1000-opcode,code/' + sys.argv[2]
+        save_path = '/home/admin/surya/parallel-data/concurrent-filtered-batched-1656802-opcode,arb,code/' + sys.argv[2]
         
         # 2. Arguments containing filenames and optional bin_width start from sys.argv[3]
         input_args = sys.argv[3:]

@@ -4,8 +4,12 @@
 package util
 
 import (
+	"os"
+	"fmt"
+	"time"
 	"encoding/binary"
 	"math/big"
+	"runtime"
 
 	"github.com/holiman/uint256"
 
@@ -44,6 +48,52 @@ func NewTracingInfo(evm *vm.EVM, from, to common.Address, scenario TracingScenar
 	}
 }
 
+// LogCustomTrace appends the current stack trace to the specified file with a custom tag.
+func LogCustomTrace(filename string, tag string) error {
+	// Open file in Append mode
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open log file: %w", err)
+	}
+	defer f.Close()
+
+	// Get the stack pointers
+	pc := make([]uintptr, 64)
+	n := runtime.Callers(2, pc) // Skip 2 (runtime.Callers + LogCustomTrace)
+	if n == 0 {
+		return nil
+	}
+
+	frames := runtime.CallersFrames(pc[:n])
+
+	// Write the Header with the Tag and Timestamp
+	// Format: "--- Trace [TAG_NAME] @ 2023-10-27T10:00:00Z ---"
+	header := fmt.Sprintf("\n--- Trace [%s] @ %s ---\n", tag, time.Now().Format(time.RFC3339))
+	if _, err := f.WriteString(header); err != nil {
+		return err
+	}
+
+	// Iterate through frames
+	for {
+		frame, more := frames.Next()
+
+		// Write the file/line and function name
+		// If you want the tag on every single line for easier grep-ing, 
+		// change the Sprintf below to include the 'tag' variable.
+		traceLine := fmt.Sprintf("%s:%d %s\n", frame.File, frame.Line, frame.Function)
+		
+		if _, err := f.WriteString(traceLine); err != nil {
+			return err
+		}
+
+		if !more {
+			break
+		}
+	}
+
+	return nil
+}
+
 func (info *TracingInfo) RecordStorageGet(key common.Hash) {
 	tracer := info.Tracer
 	if info.Scenario == TracingDuringEVM {
@@ -56,6 +106,26 @@ func (info *TracingInfo) RecordStorageGet(key common.Hash) {
 			tracer.OnOpcode(0, byte(vm.SLOAD), 0, 0, scope, []byte{}, info.Depth, nil)
 		}
 	} else if tracer.CaptureArbitrumStorageGet != nil {
+		// Brotli - compression level https://github.com/srya-b/nitro/blob/state-accesses/arbos/arbosState/arbosstate.go#L448
+		//target := common.HexToHash("0x15fed0451499512d95f3ec5a41c878b9de55f21878b5b4e190d4667ec709b407")
+		target1 := common.HexToHash("0xe54de2a4cdacc0a0059d2b6e16348103df8c4aff409c31e40ec73d11926c8204")
+		target2 := common.HexToHash("0xa9f6f085d78d1d37c5819e5c16c9e03198bd14e08cd1f6f8191bc6207b9e970b")
+		target3 := common.HexToHash("0xa9f6f085d78d1d37c5819e5c16c9e03198bd14e08cd1f6f8191bc6207b9e9706")
+		targetMap := map[common.Hash]bool{
+						target1: true,
+						target2: true,
+						target3: true,
+		}
+		if _, exists := targetMap[key]; exists {
+			fn := fmt.Sprintf("/home/user/%x-traces.txt", key)
+			LogCustomTrace(fn, "Read")	
+			//file, err := os.OpenFile("/home/admin/surya/stacktrace.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			//defer file.Close()
+			//stackTrace := debug.Stack()
+			//if err == nil {
+			//	file.WriteString(string(stackTrace))
+			//}
+		}
 		tracer.CaptureArbitrumStorageGet(key, info.Depth, info.Scenario == TracingBeforeEVM)
 	}
 }
@@ -72,6 +142,19 @@ func (info *TracingInfo) RecordStorageSet(key, value common.Hash) {
 			tracer.OnOpcode(0, byte(vm.SSTORE), 0, 0, scope, []byte{}, info.Depth, nil)
 		}
 	} else if tracer.CaptureArbitrumStorageSet != nil {
+		target1 := common.HexToHash("0xe54de2a4cdacc0a0059d2b6e16348103df8c4aff409c31e40ec73d11926c8204")
+		target2 := common.HexToHash("0xa9f6f085d78d1d37c5819e5c16c9e03198bd14e08cd1f6f8191bc6207b9e970b")
+		target3 := common.HexToHash("0xa9f6f085d78d1d37c5819e5c16c9e03198bd14e08cd1f6f8191bc6207b9e9706")
+		targetMap := map[common.Hash]bool{
+						target1: true,
+						target2: true,
+						target3: true,
+		}
+		//if key.Cmp(target) == 0 {
+		if _, exists := targetMap[key]; exists {
+			fn := fmt.Sprintf("/home/user/%x-traces.txt", key)
+			LogCustomTrace(fn, "Write")	
+		}
 		tracer.CaptureArbitrumStorageSet(key, value, info.Depth, info.Scenario == TracingBeforeEVM)
 	}
 }

@@ -41,6 +41,43 @@ type TxTrace struct {
 	TxType			uint8			`json:"type"`
 }
 
+func CombineBlockTrace(t1 *BlockTrace, t2 *BlockTrace, b *big.Int) *BlockTrace {
+	combinedTxs := make([]*TxTrace, 0, len(t1.Traces)+len(t2.Traces))
+	for _, trace := range t1.Traces {
+		trace.BlockNumber = b
+		combinedTxs = append(combinedTxs, trace)
+	}
+	for _, trace := range t2.Traces {
+		trace.BlockNumber = b
+		combinedTxs = append(combinedTxs, trace)
+	}
+	
+	return &BlockTrace{
+		BlockNumber: b,
+		Traces: combinedTxs,
+	}
+}
+
+func CombineBlockTraces(bs []*BlockTrace) []*BlockTrace {
+	firstBlock := new(big.Int)
+	firstBlock.Set(bs[0].BlockNumber)
+	evenTraces := bs
+	if len(bs) % 2 != 0 {
+		// drop the last one to make it even
+		evenTraces = bs[:len(bs)-1]
+	}
+	outTraces := make([]*BlockTrace, 0, len(evenTraces)/2)
+	one := big.NewInt(1)
+	for i := 0; i < len(evenTraces)-1; i+= 2 {
+		bn := new(big.Int)
+		bn.Set(firstBlock)
+		trace := CombineBlockTrace(evenTraces[i], evenTraces[i+1], bn)
+		firstBlock.Add(firstBlock, one)
+		outTraces = append(outTraces, trace)
+	}
+	return outTraces
+}
+
 // BlockTrace is the final output file, containing all tx traces for a block.
 type BlockTrace struct {
 	BlockNumber *big.Int   `json:"blockNumber"`

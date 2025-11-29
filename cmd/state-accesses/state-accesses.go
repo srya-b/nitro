@@ -6,6 +6,8 @@ import (
 	"math"
 	"sort"
 	"flag"
+	"bufio"
+	"strings"
 	"math/big"
 	_"strconv"
 	"runtime"
@@ -30,6 +32,56 @@ var filterKeys = map[KeyPair]bool{
 	KeyPair{common.Address{}, common.HexToHash("e54de2a4cdacc0a0059d2b6e16348103df8c4aff409c31e40ec73d11926c8204")}: true,
 }
 
+type FilterKeyPair struct {
+	Addr	common.Address
+	Key		common.Hash
+}
+
+var userFilterAddrs = make(map[FilterKeyPair]bool)
+
+func parseFile(filename string) ([]FilterKeyPair, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, fmt.Errorf("could not open file: %w", err)
+	}
+	defer file.Close()
+
+	var pairs []FilterKeyPair
+	scanner := bufio.NewScanner(file)
+
+	lineNumber := 0
+	for scanner.Scan() {
+		lineNumber++
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines or lines that might be comments (optional)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Split the line by the first comma
+		parts := strings.SplitN(line, ",", 2)
+
+		if len(parts) != 2 {
+			// Return a more specific error including the line number
+			return nil, fmt.Errorf("line %d does not contain exactly two comma-separated strings: %s", lineNumber, line)
+		}
+
+		// Create and append the FilterKeyPair, trimming whitespace from the parts
+		pair := FilterKeyPair{
+			Addr:  common.HexToAddress(strings.TrimSpace(parts[0])),
+			Key: common.HexToHash(strings.TrimSpace(parts[1])),
+		}
+		pairs = append(pairs, pair)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading file content: %w", err)
+	}
+
+	return pairs, nil
+}
+
 func mainImpl() int {
 	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelDebug, true)))
 
@@ -37,9 +89,13 @@ func mainImpl() int {
 	debugPtr := flag.Bool("debug", false, "Enable debug mode.")
 	limitPtr := flag.Int("limit", math.MaxInt, "Limit the number of items to process (default: no limit).")
 	listConflictsPtr := flag.Int("list-conflicts", -1, "List accesses that conflict across len(txs) - <value> transactions in a block. --list-conflicts 2 will list conflicts if they conflict across len(txs)-2 transactions in every block.")
+	bigBlocksPtr := flag.Bool("big-blocks", false, "Combine b blocks into 1 block. (default=1)")
 	//listConflictsPtr := flag.Bool("list-conflicts", false, "List accesses that conflict across ALL transactions in the block.")
 	//speedupPtr := flag.String("speedups", "", "Write the speedups per block, per core number, to a csv file")
 	filterArbosPtr := flag.Bool("filter-arbos", false, "Filter the three ArbOS slots from the access set.")
+
+	var filterFileName string
+	flag.StringVar(&filterFileName, "filter", "", "filter file (each line is a addr,key pair.")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] <data_dir> <output_dir>\n", os.Args[0])
@@ -71,8 +127,21 @@ func mainImpl() int {
 	fmt.Printf("Output Directory: %s\n", destdir)
 	fmt.Printf("Batches:          %d\n", *batchesPtr)
 	fmt.Printf("Debug Mode:       %t\n", *debugPtr)
-	fmt.Printf("List conflicts:   %t\n", *listConflictsPtr)
+	fmt.Printf("List conflicts:   %d\n", *listConflictsPtr)
 	fmt.Printf("Filter ArbOS:     %t\n", *filterArbosPtr)
+	fmt.Printf("Filter file:      %s\n", filterFileName)
+
+	if filterFileName != "" {
+		pairs, err := parseFile(filterFileName)
+		if err != nil {
+			fmt.Println(err)
+			return 1
+		}
+
+		for _, p := range pairs {
+			filterKeys[KeyPair{p.Addr, p.Key}] = true
+		}
+	}	
 
 	limitVal := "Not set"
 	if *limitPtr != math.MaxInt {
@@ -103,7 +172,7 @@ func mainImpl() int {
 	//}
 
 	if batches > 1 {
-		return mainBatched(sortedFiles, destdir, batches, debug, listConflicts, *filterArbosPtr)
+		return mainBatched(sortedFiles, destdir, batches, debug, listConflicts, *filterArbosPtr, *bigBlocksPtr)
 	}	
 
 
@@ -129,12 +198,24 @@ func mainImpl() int {
 		actuallyUsed++
 	}
 
+	if *bigBlocksPtr {
+		blockTraces = CombineBlockTraces(blockTraces)
+	}
+
 	// the output directory of all these files is determined by the access flags and limit
 	var outdir string
 	if *filterArbosPtr {
-		outdir = fmt.Sprintf("%s/concurrent-filtered-%d-%s", destdir, actuallyUsed, FormatAccessFlags(accessFlags))
+		if *bigBlocksPtr {
+			outdir = fmt.Sprintf("%s/concurrent-filtered-bigblocks-%d-%s", destdir, actuallyUsed, FormatAccessFlags(accessFlags))
+		} else {
+			outdir = fmt.Sprintf("%s/concurrent-filtered-%d-%s", destdir, actuallyUsed, FormatAccessFlags(accessFlags))
+		}
 	} else {
-		outdir = fmt.Sprintf("%s/concurrent-%d-%s", destdir, actuallyUsed, FormatAccessFlags(accessFlags))
+		if *bigBlocksPtr {
+			outdir = fmt.Sprintf("%s/concurrent-bigblocks%d-%s", destdir, actuallyUsed, FormatAccessFlags(accessFlags))
+		} else {
+			outdir = fmt.Sprintf("%s/concurrent-%d-%s", destdir, actuallyUsed, FormatAccessFlags(accessFlags))
+		}
 	}
 
 	if err := os.MkdirAll(outdir, 0755); err != nil {
@@ -246,7 +327,7 @@ func SimMultipleFiniteCores(blockTraces []*BlockTrace, limit int, krange []int, 
 type UintHistogram map[int]int
 type FloatHistogram map[float64]int
 
-func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, listConflicts int, filterArbos bool) int {
+func mainBatched(logs []fileWithNum, destdir string, batches int, debug bool, listConflicts int, filterArbos bool, bigBlocks bool) int {
 	log.Info("Executing in batches.")
 
 	batchedSortedFiles := splitSliceIntoNParts(logs, batches)
@@ -479,9 +560,8 @@ func SimMultipleFiniteCoresBatched(blockTraces []*BlockTrace, krange []int, debu
 	return kSpeedupMap, blockSpeedups
 }
 
-
-var FilterAddrs = map[common.Address]bool{
-	//common.HexToAddress("0xA4b05FffffFffFFFFfFFfffFfffFFfffFfFfFFFf"):true,
+var filterAddrs = map[common.Address]bool{
+	common.HexToAddress("0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"): true,
 }
 
 func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts int, debug bool, filterArbos bool) *WeightedVertexGraph {
@@ -490,6 +570,7 @@ func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts in
 	txWrites := make(map[KeyPair]map[int]bool)
 	txReads := make(map[KeyPair]map[int]bool)
 	conflicts := make(map[Conflict]bool)
+	mostConflicts := make(map[KeyPair]map[Conflict]bool)
 
 	txidx := 0
 	weights := make([]uint64, 0, len(blockTrace.Traces))
@@ -501,12 +582,11 @@ func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts in
 		var writeAccesses []KeyAccess
 		var readAccesses []KeyAccess
 		if filterArbos {
-			writeAccesses, readAccesses = FilterAccessesAndByAddress(txTrace, filterFlags, FilterAddrs, filterKeys)
+			writeAccesses, readAccesses = FilterAccessesAndByAddress(txTrace, filterFlags, filterAddrs, filterKeys)
 		} else {
-			writeAccesses, readAccesses = FilterAccessesAndByAddress(txTrace, filterFlags, map[common.Address]bool{}, map[KeyPair]bool{})
+			writeAccesses, readAccesses = FilterAccessesAndByAddress(txTrace, filterFlags, filterAddrs, map[KeyPair]bool{})
 		}
 			
-
 		// process the reads in this transactions and determine conflits
 		for _, access := range readAccesses {
 			pair := access.Pair	
@@ -523,6 +603,11 @@ func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts in
 				for wtx := range writeTxs {
 					if txidx != wtx {
 						conflicts[Conflict{txidx, wtx}] = true
+						if m, exists := mostConflicts[pair]; exists {
+							m[Conflict{txidx, wtx}] = true
+						} else {
+							mostConflicts[pair] = map[Conflict]bool{Conflict{txidx, wtx}:true,}
+						}
 					}
 				}
 			}
@@ -536,6 +621,11 @@ func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts in
 				for wtx := range writeTxs {
 					if txidx != wtx {
 						conflicts[Conflict{txidx, wtx}] = true
+						if m, exists := mostConflicts[pair]; exists {
+							m[Conflict{txidx, wtx}] = true
+						} else {
+							mostConflicts[pair] = map[Conflict]bool{Conflict{txidx, wtx}:true,}
+						}
 					}
 				}
 			} else {
@@ -549,34 +639,42 @@ func BlockGraph(blockTrace *BlockTrace, filterFlags AccessType, listConflicts in
 
 	// if --list-conflicts print out the conflicts that exist across all transactions in this block
 	if listConflicts >= 0 {
-		// reads by all: the keys in txReads s.t. len(txReads[k]) == txidx
-		readByAll := make(map[KeyPair]bool)
-		for pair, txs := range txReads {
-			if len(txs) == txidx-1 {
-				readByAll[pair] = true	
-			}
-		}
-		// same for writes
-		writtenByAll := make(map[KeyPair]bool)
-		for pair, txs := range txWrites {
-			if len(txs) == txidx-1 {
-				writtenByAll[pair] = true
+		// list the l highest conflicts
+		fmt.Printf("Conflicts impacting %d/%d txs\n", len(blockTrace.Traces)-listConflicts, len(blockTrace.Traces))
+		for pair, c := range mostConflicts {
+			if len(c) >= len(blockTrace.Traces) - listConflicts {
+				fmt.Println(pair)
 			}
 		}
 
-		// print them out
-		log.Debug("Keys that conflict across all tranasctions.")
-		fmt.Printf("Reads: \n\t")
-		for pair := range readByAll {
-			fmt.Printf("%v, ", pair)
-		}
-		fmt.Println()
+		//// reads by all: the keys in txReads s.t. len(txReads[k]) == txidx
+		//readByAll := make(map[KeyPair]bool)
+		//for pair, txs := range txReads {
+		//	if len(txs) == txidx-1 {
+		//		readByAll[pair] = true	
+		//	}
+		//}
+		//// same for writes
+		//writtenByAll := make(map[KeyPair]bool)
+		//for pair, txs := range txWrites {
+		//	if len(txs) == txidx-1 {
+		//		writtenByAll[pair] = true
+		//	}
+		//}
+
+		//// print them out
+		//log.Debug("Keys that conflict across all tranasctions.")
+		//fmt.Printf("Reads: \n\t")
+		//for pair := range readByAll {
+		//	fmt.Printf("%v, ", pair)
+		//}
+		//fmt.Println()
 	
-		fmt.Printf("Writes: \n\t")
-		for pair := range writtenByAll {
-			fmt.Printf("%v, ", pair)
-		}
-		fmt.Println()
+		//fmt.Printf("Writes: \n\t")
+		//for pair := range writtenByAll {
+		//	fmt.Printf("%v, ", pair)
+		//}
+		//fmt.Println()
 	}
 
 	if len(weights) > 0 {

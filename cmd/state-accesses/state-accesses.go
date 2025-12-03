@@ -84,28 +84,53 @@ func parseFile(filename string) ([]FilterKeyPair, error) {
 
 func mainImpl() int {
 	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelDebug, true)))
-
-	batchesPtr := flag.Int("batches", 1, "The number of batches to process.")
-	debugPtr := flag.Bool("debug", false, "Enable debug mode.")
-	limitPtr := flag.Int("limit", math.MaxInt, "Limit the number of items to process (default: no limit).")
-	listConflictsPtr := flag.Int("list-conflicts", -1, "List accesses that conflict across len(txs) - <value> transactions in a block. --list-conflicts 2 will list conflicts if they conflict across len(txs)-2 transactions in every block.")
-	bigBlocksPtr := flag.Bool("big-blocks", false, "Combine b blocks into 1 block. (default=1)")
-	//listConflictsPtr := flag.Bool("list-conflicts", false, "List accesses that conflict across ALL transactions in the block.")
-	//speedupPtr := flag.String("speedups", "", "Write the speedups per block, per core number, to a csv file")
-	filterArbosPtr := flag.Bool("filter-arbos", false, "Filter the three ArbOS slots from the access set.")
-
-	var filterFileName string
-	flag.StringVar(&filterFileName, "filter", "", "filter file (each line is a addr,key pair.")
-
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] <data_dir> <output_dir>\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: state-accesses <command> [args...]")
+		fmt.Println("Commands: accesses, num-txs")
+		return 1
 	}
 
-	flag.Parse()
+	switch os.Args[1] {
+	case "accesses":
+		return runAccesses()
+	case "num-txs":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: state-accesses num-txs <data_dir>")
+			return 1
+		}
+		return numTxs(os.Args[2])
+	default:
+		fmt.Printf("Unknown command: %s\n", os.Args[1])
+		fmt.Println("Usage: state-accesses <command> [args...]")
+		fmt.Println("Commands: accesses, num-txs")
+		return 1
+	}
+}
 
-	positionalArgs := flag.Args()
+func runAccesses() int {
+	accessCmd := flag.NewFlagSet("accesses", flag.ExitOnError)
+
+	batchesPtr := accessCmd.Int("batches", 1, "The number of batches to process.")
+	debugPtr := accessCmd.Bool("debug", false, "Enable debug mode.")
+	limitPtr := accessCmd.Int("limit", math.MaxInt, "Limit the number of items to process (default: no limit).")
+	listConflictsPtr := accessCmd.Int("list-conflicts", -1, "List accesses that conflict across len(txs) - <value> transactions in a block. --list-conflicts 2 will list conflicts if they conflict across len(txs)-2 transactions in every block.")
+	bigBlocksPtr := accessCmd.Bool("big-blocks", false, "Combine b blocks into 1 block. (default=1)")
+	//listConflictsPtr := flag.Bool("list-conflicts", false, "List accesses that conflict across ALL transactions in the block.")
+	//speedupPtr := flag.String("speedups", "", "Write the speedups per block, per core number, to a csv file")
+	filterArbosPtr := accessCmd.Bool("filter-arbos", false, "Filter the three ArbOS slots from the access set.")
+
+	var filterFileName string
+	accessCmd.StringVar(&filterFileName, "filter", "", "filter file (each line is a addr,key pair.")
+
+	accessCmd.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] <data_dir> <output_dir>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		accessCmd.PrintDefaults()
+	}
+
+	accessCmd.Parse(os.Args[2:])
+
+	positionalArgs := accessCmd.Args()
 
 	// 3. Check if we have the correct number of required arguments
 	if len(positionalArgs) < 2 {

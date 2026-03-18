@@ -1,3 +1,25 @@
+# Trie Node Tracking
+The actual tracking part of the work is in `go-ethereum` and the README there explains how the nodes are tracked.
+
+Must make sure we only track trie node accesses required for validation/block creation for a node following the chain.
+Therefore, we add the tracking calls in `execution/gethexec/executionengine.go:digestMessageWithBlockMutex(...)` after the initial error checks. 
+Wrapping the code of this function ensures you capture the reads from `arbos.ProduceBlock` and the writes/deletes from when `statedb.Commit` when appending the new block.
+1. Figure out the block number of the block that is being created `currentHeader.Number + 1`.
+2. Wrap the remaining function code with 
+```go
+trie.BeginBlockTracking(currentBlockNum)
+defer trie.EndBlockTracking()
+```
+3. **MUST DO**: comment out the if block 
+```go
+if s.prefetchBlock && msgForPrefetch != nil {
+...
+}
+```
+because this is Nitro trying to execute the block after (if it exists) in parallel in order to warm up the cache. Getting these accesses along with the accesses of the current block will mess things up! This might slow down execution for your node, but who cares.
+
+That's all.
+
 <br />
 <p align="center">
   <a href="https://arbitrum.io/">

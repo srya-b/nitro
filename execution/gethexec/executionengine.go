@@ -39,6 +39,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/ethereum/go-ethereum/trie"
 
 	"github.com/offchainlabs/nitro/arbos"
 	"github.com/offchainlabs/nitro/arbos/arbosState"
@@ -662,7 +663,7 @@ func (s *ExecutionEngine) sequenceTransactionsWithBlockMutex(header *arbostypes.
 	delayedMessagesRead := lastBlockHeader.Nonce.Uint64()
 
 	startTime := time.Now()
-	block, receipts, err := arbos.ProduceBlockAdvanced(
+	block, receipts, err := arbos.ProduceBlockAdvancedCustom(
 		header,
 		delayedMessagesRead,
 		lastBlockHeader,
@@ -889,7 +890,7 @@ func (s *ExecutionEngine) createBlockFromNextMessage(msg *arbostypes.MessageWith
 		}
 		filteringHooks := NewDelayedFilteringSequencingHooks(txes, s.eventFilter)
 
-		block, receipts, err := arbos.ProduceBlockAdvanced(
+		block, receipts, err := arbos.ProduceBlockAdvancedCustom(
 			msg.Message.Header,
 			msg.DelayedMessagesRead,
 			currentHeader,
@@ -927,7 +928,7 @@ func (s *ExecutionEngine) createBlockFromNextMessage(msg *arbostypes.MessageWith
 		return block, statedb, receipts, nil
 	}
 
-	block, receipts, err := arbos.ProduceBlock(
+	block, receipts, err := arbos.ProduceBlockCustom(
 		msg.Message,
 		msg.DelayedMessagesRead,
 		currentHeader,
@@ -1119,15 +1120,22 @@ func (s *ExecutionEngine) digestMessageWithBlockMutex(msgIdxToDigest arbutil.Mes
 		return nil, fmt.Errorf("wrong message number in digest got %d expected %d", msgIdxToDigest, curMsgIdx+1)
 	}
 
-	startTime := time.Now()
-	if s.prefetchBlock && msgForPrefetch != nil {
-		go func() {
-			_, _, _, err := s.createBlockFromNextMessage(msgForPrefetch, true, false)
-			if err != nil {
-				return
-			}
-		}()
+	var currentBlockNum uint64
+	if currentHeader != nil && currentHeader.Number != nil {
+		currentBlockNum = currentHeader.Number.Uint64() + 1
 	}
+	trie.BeginBlockTracking(currentBlockNum)
+	defer trie.EndBlockTracking()
+
+	startTime := time.Now()
+	//if s.prefetchBlock && msgForPrefetch != nil {
+	//	go func() {
+	//		_, _, _, err := s.createBlockFromNextMessage(msgForPrefetch, true, false)
+	//		if err != nil {
+	//			return
+	//		}
+	//	}()
+	//}
 
 	block, statedb, receipts, err := s.createBlockFromNextMessage(msg, false, false)
 	if err != nil {

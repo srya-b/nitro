@@ -99,6 +99,14 @@ func mainImpl() int {
 			return 1
 		}
 		return numTxs(os.Args[2])
+	case "slot-writes":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: state-accesses slot-writes <data_dir>")
+			return 1
+		}
+		//return slotWrites(os.Args[2])	
+		//return slotWriteStats(os.Args[2])
+		return slotGrowth(os.Args[2])
 	default:
 		fmt.Printf("Unknown command: %s\n", os.Args[1])
 		fmt.Println("Usage: state-accesses <command> [args...]")

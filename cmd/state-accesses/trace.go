@@ -41,6 +41,16 @@ type TxTrace struct {
 	TxType			uint8			`json:"type"`
 }
 
+type TxTraceMetaData struct {
+	BlockNumber *big.Int       		`json:"blockNumber"`
+	TxIndex     	uint            `json:"txIndex"`
+	TxHash			common.Hash	   `json:"txHash,omitempty"`
+	CumulativeGas	uint64			`json:"cumulativeGas"`
+	GasUsed			uint64			`json:"gasUsed"`
+	GasUsedForL1	uint64			`json:"gasUsedForL1"`
+	TxType			uint8			`json:"type"`
+}
+
 func CombineBlockTrace(t1 *BlockTrace, t2 *BlockTrace, b *big.Int) *BlockTrace {
 	combinedTxs := make([]*TxTrace, 0, len(t1.Traces)+len(t2.Traces))
 	for _, trace := range t1.Traces {
@@ -82,6 +92,11 @@ func CombineBlockTraces(bs []*BlockTrace) []*BlockTrace {
 type BlockTrace struct {
 	BlockNumber *big.Int   `json:"blockNumber"`
 	Traces      []*TxTrace  `json:"transactions"`
+}
+
+type BlockTraceMetaData struct {
+	BlockNumber *big.Int   `json:"blockNumber"`
+	Traces      []*TxTraceMetaData  `json:"transactions"`
 }
 
 type AccessType uint8 // uint8 is enough for 7 flags (up to 8)

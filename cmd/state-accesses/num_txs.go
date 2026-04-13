@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"runtime"
 )
 
 func numTxs(datadir string) int {
@@ -15,13 +16,18 @@ func numTxs(datadir string) int {
 	fmt.Printf("Num blocks: %d\n", len(sortedFiles))
 
 	txCounts := make([]int, 0, len(sortedFiles))
-	for _, file := range sortedFiles {
+	for i, file := range sortedFiles {
+		if i >= 10000 {
+			break
+		}
 		trace, err := BlockTraceFromFile(file)
 		if err != nil {
 			fmt.Println(err)
 			return 1
 		}
 		txCounts = append(txCounts, len(trace.Traces))
+		trace = nil
+		runtime.GC()
 	}
 
 	histogram := createHistogram(txCounts, 1)

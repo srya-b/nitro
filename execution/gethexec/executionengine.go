@@ -64,6 +64,19 @@ var (
 	totalMultiGasUsedSinceStartupCounter = metrics.NewRegisteredCounter("arb/multigas_used/total", nil)
 	blockExecutionTimer                  = metrics.NewRegisteredHistogram("arb/block/execution", nil, metrics.NewBoundedHistogramSample())
 	blockWriteToDbTimer                  = metrics.NewRegisteredHistogram("arb/block/writetodb", nil, metrics.NewBoundedHistogramSample())
+
+	// State commit / hashing / disk-I/O instrumentation. All values are
+	// nanoseconds and reflect the durations recorded on the StateDB during
+	// the block's commit phase.
+	blockAccountHashTimer        = metrics.NewRegisteredHistogram("arb/block/state/account_hash", nil, metrics.NewBoundedHistogramSample())
+	blockStorageHashTimer        = metrics.NewRegisteredHistogram("arb/block/state/storage_hash", nil, metrics.NewBoundedHistogramSample())
+	blockAccountCommitTimer      = metrics.NewRegisteredHistogram("arb/block/state/account_commit", nil, metrics.NewBoundedHistogramSample())
+	blockStorageCommitLongest    = metrics.NewRegisteredHistogram("arb/block/state/storage_commit_longest", nil, metrics.NewBoundedHistogramSample())
+	blockStorageCommitTotalTimer = metrics.NewRegisteredHistogram("arb/block/state/storage_commit_total", nil, metrics.NewBoundedHistogramSample())
+	blockTrieDBCommitTimer       = metrics.NewRegisteredHistogram("arb/block/state/triedb_commit", nil, metrics.NewBoundedHistogramSample())
+	blockTrieDiskWritesTimer     = metrics.NewRegisteredHistogram("arb/block/state/trie_disk_writes", nil, metrics.NewBoundedHistogramSample())
+	blockTrieDiskReadsCommitTmr  = metrics.NewRegisteredHistogram("arb/block/state/trie_disk_reads_commit", nil, metrics.NewBoundedHistogramSample())
+	blockTrieCommitTotalTimer    = metrics.NewRegisteredHistogram("arb/block/state/trie_commit_total", nil, metrics.NewBoundedHistogramSample())
 )
 
 var ExecutionEngineBlockCreationStopped = errors.New("block creation stopped in execution engine")
@@ -113,6 +126,8 @@ type ExecutionEngine struct {
 	exposeMultiGas bool
 
 	runningMaintenance atomic.Bool
+
+	timingRecorder *blockTimingRecorder
 }
 
 func NewL1PriceData() *L1PriceData {
@@ -265,6 +280,23 @@ func (s *ExecutionEngine) EnablePrefetchBlock() {
 		panic("trying to enable prefetch block when already set")
 	}
 	s.prefetchBlock = true
+}
+
+// EnableTimingCSV opens the per-block timing CSV at the given path and starts
+// recording one row per block. Must be called before the engine is started.
+func (s *ExecutionEngine) EnableTimingCSV(path string) error {
+	if s.Started() {
+		panic("trying to enable timing CSV after start")
+	}
+	if s.timingRecorder != nil {
+		panic("timing CSV already enabled")
+	}
+	rec, err := newBlockTimingRecorder(path)
+	if err != nil {
+		return err
+	}
+	s.timingRecorder = rec
+	return nil
 }
 
 func (s *ExecutionEngine) SetConsensus(consensus execution.FullConsensusClient) {
@@ -801,6 +833,17 @@ func (s *ExecutionEngine) appendBlock(block *types.Block, statedb *state.StateDB
 		}
 	}
 	blockWriteToDbTimer.Update(time.Since(startTime).Nanoseconds())
+
+	// Surface the trie/commit timing fields that the StateDB accumulated during
+	// commitAndFlush. These are otherwise unused on Nitro's path because the
+	// node never goes through core/blockchain.go's processBlock metrics block.
+	emitStateTimingMetrics(statedb)
+
+	// Emit one row per block to the configured CSV path, if any. blockCalcTime
+	// (passed in via `duration`) is the same value the existing
+	// blockExecutionTimer reports.
+	s.timingRecorder.record(block, statedb, duration)
+
 	baseFeeGauge.Update(block.BaseFee().Int64())
 	txCountHistogram.Update(int64(len(block.Transactions()) - 1))
 	var blockGasused uint64

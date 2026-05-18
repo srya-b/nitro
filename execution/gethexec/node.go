@@ -141,6 +141,7 @@ type Config struct {
 	BlockMetadataApiBlocksLimit uint64              `koanf:"block-metadata-api-blocks-limit"`
 	VmTrace                     LiveTracingConfig   `koanf:"vmtrace"`
 	ExposeMultiGas              bool                `koanf:"expose-multi-gas"`
+	TimingCSVPath               string              `koanf:"timing-csv-path"`
 
 	forwardingTarget string
 }
@@ -189,6 +190,7 @@ func ConfigAddOptions(prefix string, f *pflag.FlagSet) {
 	f.Uint64(prefix+".block-metadata-api-cache-size", ConfigDefault.BlockMetadataApiCacheSize, "size (in bytes) of lru cache storing the blockMetadata to service arb_getRawBlockMetadata")
 	f.Uint64(prefix+".block-metadata-api-blocks-limit", ConfigDefault.BlockMetadataApiBlocksLimit, "maximum number of blocks allowed to be queried for blockMetadata per arb_getRawBlockMetadata query. Enabled by default, set 0 to disable the limit")
 	f.Bool(prefix+".expose-multi-gas", false, "experimental: expose multi-dimensional gas in transaction receipts")
+	f.String(prefix+".timing-csv-path", ConfigDefault.TimingCSVPath, "if set, append per-block execution/commit timings (in ns) to this CSV file")
 	LiveTracingConfigAddOptions(prefix+".vmtrace", f)
 }
 
@@ -226,6 +228,7 @@ var ConfigDefault = Config{
 	BlockMetadataApiBlocksLimit: 100,
 	VmTrace:                     DefaultLiveTracingConfig,
 	ExposeMultiGas:              false,
+	TimingCSVPath:               "",
 }
 
 type ConfigFetcher interface {
@@ -268,6 +271,11 @@ func CreateExecutionNode(
 	}
 	if config.Caching.DisableStylusCacheMetricsCollection {
 		execEngine.DisableStylusCacheMetricsCollection()
+	}
+	if config.TimingCSVPath != "" {
+		if err := execEngine.EnableTimingCSV(config.TimingCSVPath); err != nil {
+			return nil, err
+		}
 	}
 	if err != nil {
 		return nil, err

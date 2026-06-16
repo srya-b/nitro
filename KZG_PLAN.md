@@ -37,14 +37,14 @@ Because the workload is payments-only, the storage and code paths in StateDB are
 
 ## Locked-in design parameters
 
-- **Commitment scheme**: KZG over BLS12-381, **evaluation form (Lagrange basis)**. Single-slot updates are O(1) (one scalar-mult against the relevant basis point + one point-add). Batch updates of k slots are one MSM of size k.
+- **Commitment scheme**: KZG over BN254, **evaluation form (Lagrange basis)**. Single-slot updates are O(1) (one scalar-mult against the relevant basis point + one point-add). Batch updates of k slots are one MSM of size k.
 - **State model**: two parallel vectors `balances[N]` and `nonces[N]` indexed by an account index `i ∈ [0, N)`. No storage, no code, no other per-account fields committed.
 - **Account → index map**: bucketed cuckoo hash table, in-consensus, committed via **two separate KZG vectors** `C_T1` and `C_T2` (one per cuckoo lane) — split-lane design.
 - **Cuckoo parameters**:
   - 2 lanes (d=2), bucket size B=8, no stash, MAX_KICKS=500
   - Two SipHash-128 hash functions with constants fixed at genesis
   - Deterministic 2× grow + canonical reinsert on overflow (essentially never fires at the resulting ≤50% effective load)
-- **Initial capacity N**: 2²⁵ (≈33M account slots). Lagrange basis at this size ≈ 1.5 GB compressed BLS12-381 G1.
+- **Initial capacity N**: 2²⁵ (≈33M account slots). Lagrange basis at this size ≈ 1 GB compressed BN254 G1 (32 bytes/point vs 48 bytes for BLS12-381).
 - **Total commitments per state**: four — `C_balances`, `C_nonces`, `C_T1`, `C_T2`. All length N, sharing one Lagrange basis.
 - **State root encoding**:
   ```
@@ -54,7 +54,7 @@ Because the workload is payments-only, the storage and code paths in StateDB are
       || u64_be(N)
   )
   ```
-  32 bytes in the block header's `Root` field. Full 48-byte commitments persisted under `K:com:<root>` in ethdb.
+  32 bytes in the block header's `Root` field. Full 32-byte commitments persisted under `K:com:<root>` in ethdb.
 - **Account index allocation**: monotonic counter (`next_index`), no reuse. Documented limitation (see below); future work to add free-list.
 - **Storage / contracts**: not supported. No EVM execution. No ArbOS. No per-account storage trie ever opened. `StateAccount.Root` and `StateAccount.CodeHash` filled with constants (`emptyRoot`, `emptyCodeHash`) on every account read.
 - **Library**: KZG primitives written **from scratch** on top of geth's pinned `gnark-crypto`. The code at `/home/admin/b-epsilon-kv` serves as a reference for the four operations (commit, update slot, batch update, basis load), not as a dependency.
@@ -72,7 +72,7 @@ Because the workload is payments-only, the storage and code paths in StateDB are
 | Fee recipient | Fixed validator address from genesis (unused if fee = 0) | genesis config |
 | Validation | Sufficient balance + matching nonce + valid signature; rejected pre-application if any fails | block producer |
 | Genesis | JSON file of (address, balance) pairs; inserted into cuckoo and committed at chain init | `execution/payments/genesis.go` |
-| Curve | BLS12-381 | hard pin in `trie/kzg/internal/kzg.go` |
+| Curve | BN254 | hard pin in `trie/kzg/internal/kzg.go` |
 | Lagrange basis residency | All in-memory at process start | future: memory-map at very large N |
 
 ---
@@ -84,7 +84,7 @@ K:bal:<u64 be index>           → 32-byte balance (fr.Element)
 K:non:<u64 be index>           → 32-byte nonce (fr.Element, low 8 bytes used)
 K:ckk1:<u64 be cell index>     → cuckoo lane T1 cell (fr.Element, packed)
 K:ckk2:<u64 be cell index>     → cuckoo lane T2 cell (fr.Element, packed)
-K:com:<32-byte root>           → C_bal || C_non || C_T1 || C_T2 (4 × 48 bytes compressed)
+K:com:<32-byte root>           → C_bal || C_non || C_T1 || C_T2 (4 × 32 bytes compressed)
 K:meta:nextindex               → u64 BE
 K:meta:cap                     → u64 BE (N)
 ```
@@ -109,7 +109,7 @@ The design is **disk-backed for state**. State vectors and the cuckoo table are 
 
 ### What lives in RAM
 
-- **Lagrange basis**: N G1Affine points. At N=2²⁵ this is ~1.5 GB compressed. Required for fast MSM (each term is `delta_i · basis[i]`, so `basis[i]` must be addressable).
+- **Lagrange basis**: N G1Affine points. At N=2²⁵ this is ~1 GB compressed (BN254 G1 is 32 bytes compressed). Required for fast MSM (each term is `delta_i · basis[i]`, so `basis[i]` must be addressable).
 - **Current commitments**: four G1Affine points ≈ 200 bytes total.
 - **Per-block delta buffer during commit**: a `map[index→fr.Element]` per commitment, sized to slots actually changed in the current block (bounded by block transaction count — thousands at most). Cleared after commit.
 - **`next_index`, `capacity_N`**: a few u64s.
@@ -132,6 +132,7 @@ State residency is determined by Pebble's internal block cache, not by applicati
   - cuckoo cells (2 lanes × N × 32 B): ≈ 2 GB
   - commitments + metadata: negligible
   - **Total ≈ 4 GB.** A 2 GB cache covers a typical hot working set; sweep this in P5 to characterize cold-vs-warm behavior.
+  - Note: Lagrange basis RAM drops from ~1.5 GB (BLS12-381) to ~1 GB (BN254) due to the smaller compressed G1 size.
 - **Eviction policy**: Pebble's segmented LRU on SST blocks. Pages get pulled in on read, evicted under memory pressure. No application code involved.
 - **Why no custom LRU**: avoids double-caching, avoids cache-invalidation bugs, and keeps the implementation small. The DB layer already does this well; our job is to size it correctly.
 - **Surface**: configurable via a Nitro CLI flag passed through to the underlying `ethdb` open path. P5 sweeps this parameter alongside N and workload.
@@ -205,10 +206,10 @@ GetKey, PrefetchAccount, PrefetchStorage, NodeIterator, Prove, Witness → stubs
 
 - Implement `trie/kzg/internal/kzg.go` from scratch (~150 LOC) on top of geth's pinned gnark-crypto:
   ```go
-  type Setup struct { Lagrange []bls12381.G1Affine }
+  type Setup struct { Lagrange []bn254.G1Affine }
   func LoadSetup(path string, N int) (*Setup, error)
   func FastFakeLagrangeBasis(N int) *Setup
-  func (s *Setup) Commit(values []fr.Element) bls12381.G1Affine
+  func (s *Setup) Commit(values []fr.Element) bn254.G1Affine
   func (s *Setup) UpdateSlot(c G1Affine, idx int, old, new fr.Element) G1Affine
   func (s *Setup) BatchUpdate(c G1Affine, deltas map[int]fr.Element) G1Affine
   ```
@@ -284,7 +285,7 @@ Instrument `StateDB.Commit` to surface phase timings.
 
 - **Trusted setup is fake by default.** Benchmarks use `FastFakeLagrangeBasis` with known τ. Real deployment would need a real ceremony or a converted Powers-of-Tau SRS. Mostly relevant if numbers are ever extrapolated to a deployment context.
 
-- **Header `Root` is Keccak of commitments**, not the commitments themselves (which are 4×48 = 192 bytes, too large for the 32-byte header field). Block validation must read the digest, load the full commitments from `K:com:<root>`, and verify against the expected vectors.
+- **Header `Root` is Keccak of commitments**, not the commitments themselves (which are 4×32 = 128 bytes, too large for the 32-byte header field). Block validation must read the digest, load the full commitments from `K:com:<root>`, and verify against the expected vectors.
 
 ---
 
@@ -323,3 +324,5 @@ For future reference / when this plan is revisited:
 - **No stash on the cuckoo** — at 50% effective load with B=8, stash use is vanishingly rare; rehash is the fallback. Documented reversal path if real workloads expose problems.
 
 - **Hybrid-MPT storage was considered and rejected** — the cleaner measurement is pure payments-only, achieved by bypassing ArbOS in P3. The cost is one extra implementation phase; the gain is uncontaminated TPS numbers.
+
+- **BN254 over BLS12-381** — three reasons: (1) BN254 has faster finite-field arithmetic due to its smaller 254-bit prime, which directly reduces MSM and scalar-multiplication cost in the commitment/proof path; (2) Ethereum's EIP-196/197 precompiles natively support BN254, making any future on-chain verification cheaper; (3) the PSE Perpetual Powers of Tau ceremony (`github.com/privacy-ethereum/perpetualpowersoftau`) is on BN254, providing a real, widely-audited SRS to replace `FastFakeLagrangeBasis` without running a new ceremony. The tradeoff is that BN254 offers ~100-bit security vs ~128-bit for BLS12-381, but this is acceptable for a benchmark-focused chain.

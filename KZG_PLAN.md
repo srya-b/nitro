@@ -4,6 +4,29 @@
 
 Benchmark a KZG vector commitment as a candidate replacement for the Merkle-Patricia trie, measuring TPS impact relative to an MPT baseline. The benchmark targets a **payments-only chain** — EOA accounts only, pure value transfers, no contracts, no ArbOS — to isolate the cost of the account-state commitment scheme without contamination from contract execution or storage-MPT overhead.
 
+## How this document is structured
+
+This file is the **architecture / design doc**. It captures the locked-in decisions, the why behind them, and the high-level shape of each phase. Read once at the start of the project, refer back when revisiting a decision.
+
+The actual implementation is driven from a set of per-phase **implementation specs** under `nitro/docs/kzg-impl/`:
+
+```
+nitro/docs/kzg-impl/
+  README.md            — orientation, phase dependency map
+  P0_skeleton.md       — stub KZGTrie + OpenTrie switch
+  P1_kzg_primitives.md — KZG library from scratch + commitment lifecycle
+  P2_cuckoo.md         — bucketed cuckoo index map
+  P3_payments_block.md — payments-only block producer
+  P4_recovery.md       — restart / recovery
+  P5_benchmark.md      — benchmark harness + parameter sweep
+```
+
+Each per-phase spec is self-contained: exact file paths, function signatures, step-by-step pseudocode for non-trivial algorithms, concrete test cases (input → expected output), and self-checkable acceptance criteria. A downstream implementer (cheap-model or human) needs that phase's spec + this design doc as background — not the other phase specs. Phases reference each other only at their interfaces (types and functions one produces and the next consumes).
+
+If a phase spec doesn't answer an implementation question, the spec is wrong — update the spec, don't improvise in code.
+
+---
+
 ## Architectural picture
 
 Geth's `state.Trie` interface (in `go-ethereum/core/state/database.go:79-161`) is the seam where the Merkle-Patricia trie meets the StateDB. The codebase already supports an alternative implementation (verkle, `trie/verkle.go:49-73`) selected at runtime via a `triedb.Config` flag. We add a third option (KZG) by exactly the same pattern: a `KZGTrie` struct that wraps our KZG commitment library and satisfies the same 15-method interface, plus a new `IsKZG` config flag, plus a branch in `Database.OpenTrie` (`core/state/database.go:262-289`).
@@ -76,7 +99,59 @@ bits [31..0]     account_index (32 bits)
 
 Empty cell = the zero field element (occupied flag = 0). Initial state is the all-zeros vector with commitment = identity.
 
-Lagrange basis loaded from `KZG_SRS_PATH` or generated at startup with `FastFakeLagrangeBasis(N)`. Held in memory for the process lifetime.
+Lagrange basis loaded from `KZG_SRS_PATH` or generated at startup with `FastFakeLagrangeBasis(N)`. Held in memory for the process lifetime (see Memory model below for handling at very large N).
+
+---
+
+## Memory model
+
+The design is **disk-backed for state**. State vectors and the cuckoo table are not held in RAM — every cell read is a single KV get against ethdb. There is no expectation that the full state fits in memory.
+
+### What lives in RAM
+
+- **Lagrange basis**: N G1Affine points. At N=2²⁵ this is ~1.5 GB compressed. Required for fast MSM (each term is `delta_i · basis[i]`, so `basis[i]` must be addressable).
+- **Current commitments**: four G1Affine points ≈ 200 bytes total.
+- **Per-block delta buffer during commit**: a `map[index→fr.Element]` per commitment, sized to slots actually changed in the current block (bounded by block transaction count — thousands at most). Cleared after commit.
+- **`next_index`, `capacity_N`**: a few u64s.
+- **Pebble block cache** (configurable; see below). We do not write any application-level cache on top of ethdb cells — that's Pebble's job.
+
+### What lives on disk (ethdb), read on demand
+
+- Every balance cell (`K:bal:<index>`), nonce cell (`K:non:<index>`), and cuckoo cell (`K:ckk1:`, `K:ckk2:`).
+- Historical commitments by root (`K:com:<root>`).
+- All metadata (`K:meta:`).
+
+### ethdb cache: what stays warm in RAM
+
+State residency is determined by Pebble's internal block cache, not by application logic. We delegate caching entirely to the DB layer.
+
+- **Cache type**: Pebble block cache, configured via `pebble.Options.Cache` when opening the DB (already wired in geth's `ethdb/pebble`).
+- **Default size for benchmark runs**: 2 GB, exposed as a CLI flag. State on disk at N=2²⁵ is roughly:
+  - balances vector: 32 B × 2²⁵ ≈ 1 GB
+  - nonces vector: 32 B × 2²⁵ ≈ 1 GB
+  - cuckoo cells (2 lanes × N × 32 B): ≈ 2 GB
+  - commitments + metadata: negligible
+  - **Total ≈ 4 GB.** A 2 GB cache covers a typical hot working set; sweep this in P5 to characterize cold-vs-warm behavior.
+- **Eviction policy**: Pebble's segmented LRU on SST blocks. Pages get pulled in on read, evicted under memory pressure. No application code involved.
+- **Why no custom LRU**: avoids double-caching, avoids cache-invalidation bugs, and keeps the implementation small. The DB layer already does this well; our job is to size it correctly.
+- **Surface**: configurable via a Nitro CLI flag passed through to the underlying `ethdb` open path. P5 sweeps this parameter alongside N and workload.
+
+### I/O per operation
+
+- **GetAccount**: 1-2 KV range scans (one per cuckoo lane, B=8 contiguous cells each — Pebble returns the whole bucket in a single scan). If found, 2 additional KV gets for the balance and nonce slots. If absent, returns zero account with no further reads.
+- **Cuckoo insert (new account)**: range scan of bucket h₁(A); if full, range scan of the kicked entry's alternate bucket; repeat. Expected kick chain at 50% load ≈ 2 cells → ≈ 2-3 range scans total. Bounded by `MAX_KICKS=500` even pathologically.
+- **Commit**: one ethdb `Batch` containing all changed balance cells, nonce cells, cuckoo cells, the four new commitments, and metadata. Written and synced atomically.
+
+### Lagrange basis at large N
+
+- **N ≤ 2²⁵ (~1.5 GB)**: fits comfortably in RAM on any modern machine. No special handling.
+- **N ≥ 2²⁶**: memory-map the basis file from disk. MSM access pattern is random across changed indices, but the per-block working set is small (thousands of hot indices); the OS page cache handles it. Optionally `mlock` hot pages or maintain an LRU on basis indices if profiling shows page-fault overhead during commit.
+- **Future option**: chunked lazy load with explicit caching — only worth the engineering if mmap proves insufficient.
+
+### Genesis bootstrap with very large initial allocations
+
+- For small genesis (< ~1M accounts): build each commitment with a single MSM over all initial values — needs values in RAM for the MSM duration, then they go to disk.
+- For very large genesis: build incrementally via `UpdateSlot` per entry, O(1) RAM at the cost of N scalar-multiplications instead of one N-MSM. Slower setup, no memory pressure.
 
 ---
 
@@ -116,7 +191,7 @@ GetKey, PrefetchAccount, PrefetchStorage, NodeIterator, Prove, Witness → stubs
 
 ## Phased implementation
 
-### P0 — Compile-clean skeleton (1-2 days)
+### P0 — Compile-clean skeleton
 
 - New `go-ethereum/trie/kzg/` package with `KZGTrie` struct; all 15 `state.Trie` methods returning sensible zeros / panics.
 - `triedb.Config.IsKZG` plumbed; `KZGDefaults` config.
@@ -126,7 +201,7 @@ GetKey, PrefetchAccount, PrefetchStorage, NodeIterator, Prove, Witness → stubs
 
 **Acceptance**: `go build ./...` is clean from both `go-ethereum/` and Nitro root; existing geth state tests still pass with `IsKZG=false`.
 
-### P1 — KZG primitives + commitment lifecycle (~1 week)
+### P1 — KZG primitives + commitment lifecycle
 
 - Implement `trie/kzg/internal/kzg.go` from scratch (~150 LOC) on top of geth's pinned gnark-crypto:
   ```go
@@ -143,7 +218,7 @@ GetKey, PrefetchAccount, PrefetchStorage, NodeIterator, Prove, Witness → stubs
 - Implement `Commit()` end-to-end: gather deltas, run MSMs, write batch, return root.
 - Unit tests: insert N accounts, commit, restart-load, verify root matches deterministic recompute.
 
-### P2 — Cuckoo index map (~3-5 days)
+### P2 — Cuckoo index map
 
 - Bucketed cuckoo (B=8), two SipHash-128 lanes with fixed keys.
 - Persist cuckoo cells to ethdb under `K:ckk1:` / `K:ckk2:`.
@@ -152,7 +227,7 @@ GetKey, PrefetchAccount, PrefetchStorage, NodeIterator, Prove, Witness → stubs
 - Deterministic 2× grow on overflow with rehash-event logging (rare).
 - **No tx-revert journal** — payments are validated upfront and rejected if invalid, never applied-then-reverted. Eliminates the need to record kick chains for replay-on-revert.
 
-### P3 — Payments-only block producer (~1 week)
+### P3 — Payments-only block producer
 
 Custom block producer in `nitro/execution/payments/` that bypasses ArbOS:
 
@@ -161,16 +236,16 @@ Custom block producer in `nitro/execution/payments/` that bypasses ArbOS:
 - Applies via direct StateDB calls: `SubBalance(from, value)`, `AddBalance(to, value)`, `SetNonce(from, nonce+1)`.
 - Writes block with state root from `KZGTrie.Commit`.
 - New chain config flag `IsPaymentsOnly bool` to gate this mode. Set together with `IsKZG` for the experimental chain; baseline runs `IsPaymentsOnly=true, IsKZG=false`.
-- Genesis: load JSON (address, balance) pairs; insert each into cuckoo and compute initial commitments.
+- Genesis: load JSON (address, balance) pairs; insert each into cuckoo and build initial commitments. For small genesis use one MSM per commitment; for very large genesis use incremental `UpdateSlot` per entry (constant RAM — see Memory model).
 
-### P4 — Recovery on restart (~2 days)
+### P4 — Recovery on restart
 
 - On open: read latest root from head block header.
 - Load commitments from `K:com:<root>`.
 - Validate vector / cuckoo cells reachable via direct key lookup.
 - Smoke test: produce N blocks → restart → produce another N → verify deterministic recompute.
 
-### P5 — Benchmark harness (~1 week)
+### P5 — Benchmark harness
 
 Synthetic workload generator: uniform random (from, to) pairs; optionally Zipf for skewed access patterns.
 
@@ -183,11 +258,15 @@ Metrics:
 - Per-block commit latency (broken into delta-gather, MSM, batch-write phases)
 - Per-block disk write volume
 - Rehash event count (should be zero under normal workload)
-- Memory residency of Lagrange basis
+- Lagrange basis residency (process RSS attributable to the basis)
+- Pebble cache hit rate (DB-reported) at each configured cache size
+
+Parameter sweeps:
+- N ∈ {2²⁰, 2²², 2²⁴, 2²⁵, 2²⁶}
+- Pebble cache size ∈ {256 MB, 1 GB, 4 GB, 16 GB} — characterize cold-vs-warm regimes
+- Workload access pattern: uniform vs Zipf (skew parameter swept)
 
 Instrument `StateDB.Commit` to surface phase timings.
-
-**Total estimated effort**: ~5-6 weeks of focused work for a single engineer, from skeleton to first benchmark numbers.
 
 ---
 
@@ -213,7 +292,8 @@ Instrument `StateDB.Commit` to surface phase timings.
 
 | Risk | Mitigation |
 |---|---|
-| Lagrange basis memory pressure at large N | Cap N at chain init; document basis RAM cost; consider memory-mapping the basis file for very large N |
+| Lagrange basis memory pressure at large N | Cap N at chain init; document basis RAM cost; mmap the basis file for N ≥ 2²⁶ (see Memory model section) |
+| Per-block KV read latency dominates commit at high TPS | Size Pebble's block cache to cover the working set (default 2 GB; configurable). No application-level cache — DB handles it. Sweep cache size in P5 to find the knee. |
 | StateDB code paths assume storage methods do real work | All storage methods explicitly noop; smoke tests in P1 verify pass-through |
 | Tx signature verification cost dominates KZG cost | Use ecrecover (already in geth); measure separately in P5; consider BLS aggregate signatures in future work |
 | Cuckoo rehash spike in production | At ≤50% load, expected once per ~2^40 inserts; log every event; not a problem for the benchmark window |

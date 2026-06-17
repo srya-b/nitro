@@ -42,7 +42,7 @@ Because the workload is payments-only, the storage and code paths in StateDB are
 - **Account → index map**: bucketed cuckoo hash table, in-consensus, committed via **two separate KZG vectors** `C_T1` and `C_T2` (one per cuckoo lane) — split-lane design.
 - **Cuckoo parameters**:
   - 2 lanes (d=2), bucket size B=8, no stash, MAX_KICKS=500
-  - Two SipHash-128 hash functions with constants fixed at genesis
+  - **Hash functions h₁ and h₂ derived from one `Keccak256(addr)` call, slicing two disjoint 4-byte ranges of the output** (see Hash function for the cuckoo below for trade-offs and alternatives)
   - Deterministic 2× grow + canonical reinsert on overflow (essentially never fires at the resulting ≤50% effective load)
 - **Initial capacity N**: 2²⁵ (≈33M account slots). Lagrange basis at this size ≈ 1 GB compressed BN254 G1 (32 bytes/point vs 48 bytes for BLS12-381).
 - **Total commitments per state**: four — `C_balances`, `C_nonces`, `C_T1`, `C_T2`. All length N, sharing one Lagrange basis.
@@ -65,7 +65,7 @@ Because the workload is payments-only, the storage and code paths in StateDB are
 
 | Item | Default | Where to change |
 |---|---|---|
-| Cuckoo hash functions | SipHash-128 with two fixed key pairs | constants in `trie/kzg/cuckoo.go` |
+| Cuckoo hash functions | `Keccak256(addr)`, slice bytes `[0:4]` for h₁ and `[16:20]` for h₂ | helper in `trie/kzg/cuckoo.go`; swap to a faster mixer here if P5 shows it's a bottleneck |
 | SRS source | Fake Lagrange basis with known τ; env var `KZG_SRS_PATH` to load real basis | startup wiring in `trie/kzg/setup.go` |
 | Tx format | Reuse legacy Ethereum tx (signature gives `from`; fields used: `to`, `value`, `nonce`; gas and data ignored) | block producer in `execution/payments/` |
 | Fee per tx | Zero | block producer; switch to fixed-fee constant if desired |
@@ -100,6 +100,54 @@ bits [31..0]     account_index (32 bits)
 Empty cell = the zero field element (occupied flag = 0). Initial state is the all-zeros vector with commitment = identity.
 
 Lagrange basis loaded from `KZG_SRS_PATH` or generated at startup with `FastFakeLagrangeBasis(N)`. Held in memory for the process lifetime (see Memory model below for handling at very large N).
+
+---
+
+## Hash function for the cuckoo
+
+The two cuckoo hash functions h₁, h₂ are derived from a single Keccak256 over the address:
+
+```go
+hash := crypto.Keccak256(addr.Bytes())            // already in geth
+h1   := binary.BigEndian.Uint32(hash[0:4]) % m
+h2   := binary.BigEndian.Uint32(hash[16:20]) % m
+```
+
+Keccak's avalanche makes distant output bytes statistically independent, so slicing one digest gives two effectively-independent hash functions without paying for two hash calls.
+
+### Why not a faster hash (SipHash etc.)
+
+SipHash-128 is the standard pick for in-memory hash tables (Rust HashMap, Python dict, Go runtime map). The reason — keyed-PRF security against algorithmic-complexity attacks — relies on the key being **secret**, randomized per process. In our setting the key has to be **fixed at genesis and identical across all nodes**, so it's public. With a public key, SipHash provides good mixing but no PRF advantage over any other well-mixing hash.
+
+Adversarial security against grinding attacks is bounded by the cost of generating Ethereum keypairs (~10 µs each for secp256k1 + Keccak256 of the pubkey to derive the address). That cost dominates whatever we add on top — the hash function we apply to the address contributes essentially nothing to grinding cost.
+
+So the relevant trade-off is **speed vs. dependency simplicity**, not security.
+
+### Trade-offs vs. alternatives — for future revisiting
+
+| Option | Per-hash cost | New dependency? | Notes |
+|---|---|---|---|
+| **Keccak256(addr), slice — current choice** | ~1 µs | No, already in geth | Cryptographic mixing, no constants to specify, one line of code |
+| **SipHash-128 with two fixed keys** | ~100 ns | Yes — vendor `github.com/dchest/siphash` or equivalent | Two 128-bit constants must be specified at genesis; ~10× faster than Keccak; the "PRF" rationale is voided by public key, but mixing is still good |
+| **Blake3 (truncate or sub-hash)** | ~150 ns | Yes — `github.com/zeebo/blake3` or equivalent | Modern fast cryptographic hash; arguably the cleanest "fast + safe" alternative if Keccak proves too slow; well-distributed even when truncated |
+| **xxHash3** | ~50 ns | Yes — `github.com/cespare/xxhash/v2` | Very fast, non-cryptographic; same caveats as SipHash with public key but even faster; well-tested in Go ecosystem |
+| **HighwayHash** | ~80 ns | Yes — Google's library | Similar to SipHash-128 with better SIMD throughput; less common in Go |
+| **Raw address slicing (no hash)** | ~0 | No | **Not viable** — vanity-grinded addresses (0xdead..., 0x000...) cluster catastrophically in h₁ |
+
+**Cost at 100k TPS**: ~2 hashes per tx × 2 lookups (sender + recipient) ≈ 400k hashes/sec.
+- Keccak: ~400 ms of CPU per second (~40% of one core) — measurable but likely dwarfed by MSM and batch-write costs.
+- SipHash / Blake3 / xxHash3: ~20-60 ms/sec (~2-6% of one core).
+
+**When to swap**: if P5 profiling shows the cuckoo hash is a top-3 CPU cost in `Commit` or in tx-lookup, swap in this order of preference:
+1. **Blake3** — fast and cryptographic, clean replacement
+2. **SipHash-128** — fastest with reasonable mixing, vendoring is small
+3. **xxHash3** — fastest, only if security against grinding doesn't matter for the experiment
+
+The swap is localized to the helper in `trie/kzg/cuckoo.go`; nothing else depends on the choice. If swapping, also update genesis spec and rationale doc to record the chosen constants.
+
+### Domain separation
+
+We use slicing rather than two domain-separated Keccak calls (`Keccak("h1" || addr)` and `Keccak("h2" || addr)`). Slicing is sufficient because Keccak's diffusion makes distant output bytes independent in practice. Belt-and-suspenders would be 2× the hash cost for negligible safety gain.
 
 ---
 
@@ -221,7 +269,7 @@ GetKey, PrefetchAccount, PrefetchStorage, NodeIterator, Prove, Witness → stubs
 
 ### P2 — Cuckoo index map
 
-- Bucketed cuckoo (B=8), two SipHash-128 lanes with fixed keys.
+- Bucketed cuckoo (B=8) with h₁, h₂ derived from `Keccak256(addr)` slicing (see Hash function for the cuckoo).
 - Persist cuckoo cells to ethdb under `K:ckk1:` / `K:ckk2:`.
 - Wire `GetAccount` → cuckoo lookup → balance/nonce vector reads.
 - New-account path: allocate `next_index`, insert into cuckoo, fan out updates to all four commitments.
@@ -295,6 +343,7 @@ Instrument `StateDB.Commit` to surface phase timings.
 |---|---|
 | Lagrange basis memory pressure at large N | Cap N at chain init; document basis RAM cost; mmap the basis file for N ≥ 2²⁶ (see Memory model section) |
 | Per-block KV read latency dominates commit at high TPS | Size Pebble's block cache to cover the working set (default 2 GB; configurable). No application-level cache — DB handles it. Sweep cache size in P5 to find the knee. |
+| Cuckoo hash function CPU cost becomes a bottleneck | Default is Keccak256-slice (~1 µs/hash). If P5 profiling shows it's a top-3 cost, swap to Blake3 (~150 ns) or SipHash-128 (~100 ns) — localized change in `trie/kzg/cuckoo.go`. See "Hash function for the cuckoo" for the trade-off table. |
 | StateDB code paths assume storage methods do real work | All storage methods explicitly noop; smoke tests in P1 verify pass-through |
 | Tx signature verification cost dominates KZG cost | Use ecrecover (already in geth); measure separately in P5; consider BLS aggregate signatures in future work |
 | Cuckoo rehash spike in production | At ≤50% load, expected once per ~2^40 inserts; log every event; not a problem for the benchmark window |
@@ -326,3 +375,4 @@ For future reference / when this plan is revisited:
 - **Hybrid-MPT storage was considered and rejected** — the cleaner measurement is pure payments-only, achieved by bypassing ArbOS in P3. The cost is one extra implementation phase; the gain is uncontaminated TPS numbers.
 
 - **BN254 over BLS12-381** — three reasons: (1) BN254 has faster finite-field arithmetic due to its smaller 254-bit prime, which directly reduces MSM and scalar-multiplication cost in the commitment/proof path; (2) Ethereum's EIP-196/197 precompiles natively support BN254, making any future on-chain verification cheaper; (3) the PSE Perpetual Powers of Tau ceremony (`github.com/privacy-ethereum/perpetualpowersoftau`) is on BN254, providing a real, widely-audited SRS to replace `FastFakeLagrangeBasis` without running a new ceremony. The tradeoff is that BN254 offers ~100-bit security vs ~128-bit for BLS12-381, but this is acceptable for a benchmark-focused chain.
+- **Keccak256(addr) over SipHash-128 for the cuckoo hash functions** — SipHash's PRF-with-secret-key advantage is voided when the key has to be public for consensus, leaving only "fast mixing" as its benefit. Keccak is already in geth (no new dependency), needs no constants in the genesis spec, and the hash-function CPU cost is unlikely to dominate (MSM and batch writes likely heavier). If profiling later shows hashing is a real bottleneck, swap to Blake3 or SipHash-128 — change is localized to `trie/kzg/cuckoo.go`. Full trade-off table preserved in the "Hash function for the cuckoo" section so the decision can be revisited deliberately.
